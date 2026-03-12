@@ -24,6 +24,7 @@ hidden_imports = [
     'PyQt5.QtWidgets',
     'cv2',
     'numpy',
+    'pandas',
     'torch',
     'torchvision',
     'ultralytics',

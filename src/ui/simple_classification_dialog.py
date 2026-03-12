@@ -22,8 +22,9 @@ class SimpleClassificationDialog(QDialog):
         self.current_images = []
         self.changes_made = 0
 
-        # Mapeo de nombres en inglés (carpetas) a español (interfaz)
-        self.english_to_spanish = {
+        # Clases válidas: nombre carpeta -> nombre mostrado
+        # Usar siempre estas clases, sin detectar carpetas
+        self.class_labels = {
             'person': 'Persona',
             'bicycle': 'Bicicleta',
             'car': 'Auto',
@@ -40,32 +41,8 @@ class SimpleClassificationDialog(QDialog):
             'otros': 'Otros',
         }
 
-        # Nombres en español que deben ignorarse (usar versión inglés)
-        self.spanish_duplicates = {'auto', 'moto', 'persona', 'bicicleta', 'camion'}
-
-        # Detectar carpetas existentes en crops_od y crops_all
-        existing_classes = set()
-        for crops_dir in [self.crop_manager.od_crops_dir, self.crop_manager.all_crops_dir]:
-            if crops_dir.exists():
-                for subdir in crops_dir.iterdir():
-                    if subdir.is_dir():
-                        folder_name = subdir.name.lower()
-                        # Ignorar carpetas con nombres en español si ya existe la versión inglés
-                        if folder_name not in self.spanish_duplicates:
-                            existing_classes.add(folder_name)
-
-        # Crear mapeo de clases: key = nombre carpeta (inglés), value = nombre mostrado (español)
-        self.class_labels = {}
-        for cls in existing_classes:
-            display_name = self.english_to_spanish.get(cls, cls.title())
-            self.class_labels[cls] = display_name
-
-        # Si no hay carpetas, usar las clases por defecto
-        if not self.class_labels:
-            self.class_labels = dict(self.english_to_spanish)
-
         self.available_classes = list(self.class_labels.keys())
-        self.selected_class = 'car' if 'car' in self.available_classes else (self.available_classes[0] if self.available_classes else 'car')
+        self.selected_class = 'car'
 
         self.setWindowTitle("Clasificación Manual Rápida")
         self.setMinimumSize(800, 600)
