@@ -1,0 +1,18 @@
+# Las tipologías no deben tener tildes y empezar en mayúscula.
+
+# Por defecto
+Auto
+Moto
+Bus
+Camion
+Bicicleta
+Persona
+
+# Adicionales
+Taxi
+Van
+Combi
+Microbus
+Mototaxi
+Semi-trailer
+Otros

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>welcomeWindow</class>
+ <widget class="QDialog" name="welcomeWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>197</width>
+    <height>91</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>FlowVIsionAI v0.0.1</string>
+  </property>
+  <property name="locale">
+   <locale language="Spanish" country="Peru"/>
+  </property>
+  <layout class="QVBoxLayout" name="windowVerticalLayout">
+   <item alignment="Qt::AlignHCenter">
+    <widget class="QLabel" name="welcomeLabel">
+     <property name="text">
+      <string>&lt;span style=&quot;font-weight: bold;&quot;&gt;Bienvenido a FlowVisionAI&lt;/span&gt;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="Line" name="line">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="descriptionLabel">
+     <property name="text">
+      <string>Crea un nuevo proyecto o carga uno existente.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="newProjectButton">
+     <property name="text">
+      <string>Nuevo proyecto</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="openProjectButton">
+     <property name="text">
+      <string>Cargar proyecto</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
