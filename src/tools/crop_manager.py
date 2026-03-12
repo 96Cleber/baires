@@ -78,6 +78,73 @@ else:
 class CropManager:
     """Gestiona el guardado y manejo de crops de detecciones"""
 
+    @classmethod
+    def load_existing(cls, crops_od_dir: str, typologies_path: str = "./templates/tipologias.txt"):
+        """
+        Cargar un CropManager desde una carpeta de crops existente.
+        Útil para cargar resultados sin necesidad del video original.
+
+        Args:
+            crops_od_dir: Ruta a la carpeta de crops_od existente
+            typologies_path: Ruta al archivo de tipologías
+
+        Returns:
+            CropManager configurado para la carpeta existente
+        """
+        crops_path = Path(crops_od_dir)
+        parent_dir = crops_path.parent
+        folder_name = crops_path.name
+
+        # Extraer nombre del video de la carpeta (ej: "video_crops_od" -> "video")
+        if folder_name.endswith('_crops_od'):
+            video_name = folder_name.replace('_crops_od', '')
+        else:
+            video_name = folder_name
+
+        # Crear un video_path "virtual" para compatibilidad
+        virtual_video_path = str(parent_dir / f"{video_name}.mp4")
+
+        # Crear instancia
+        instance = cls.__new__(cls)
+        instance.video_path = virtual_video_path
+        instance.video_dir = parent_dir
+        instance.video_name = video_name
+        instance.typologies_path = typologies_path
+
+        # Usar directorios existentes
+        instance.all_crops_dir = parent_dir / f"{video_name}_crops_all"
+        instance.od_crops_dir = crops_path
+
+        # Crear directorios si no existen
+        instance.all_crops_dir.mkdir(exist_ok=True)
+        instance.od_crops_dir.mkdir(exist_ok=True)
+
+        # Inicializar diccionario de clases
+        instance.class_dirs = {}
+        instance._create_class_directories()
+
+        # Base de datos de crops
+        instance.crops_db_path = parent_dir / f"{video_name}_crops.db"
+
+        # Inicializar conexión y locks
+        instance._conn = None
+        instance._conn_lock = threading.Lock()
+        instance.pending_all_crops = []
+        instance.pending_od_crops = []
+        instance.batch_size = 50
+
+        # Async writer
+        if AsyncCropWriter is not None:
+            instance.async_writer = AsyncCropWriter()
+            instance.async_writer.start()
+        else:
+            instance.async_writer = None
+
+        # Inicializar base de datos si no existe
+        instance._init_crops_database()
+
+        return instance
+
     def __init__(self, video_path: str, typologies_path: str):
         self.video_path = video_path
         self.video_dir = Path(video_path).parent
@@ -118,19 +185,12 @@ class CropManager:
     
     def _create_class_directories(self):
         """Crear directorios para cada clase de vehículo"""
-        classes = ['person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck']        
-        
-        reading_section = "default"
-        with open(self.typologies_path, "r", encoding='utf-8') as file:
-            for line in file:
-                clean_line = line.strip()
-                if not clean_line or clean_line.startswith("#"):
-                    if "# Adicionales" in clean_line:
-                        reading_section = "additional"
-                    continue
-            
-                if reading_section == "additional":
-                    classes.append(clean_line.lower())
+        # Clases en inglés para las carpetas (compatibles con YOLO)
+        classes = [
+            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            'camioneta', 'microbus', 'mototaxi', 'omnibus',
+            'remolque', 'taxi', 'trailer', 'otros'
+        ]
         
         for crop_dir in [self.all_crops_dir, self.od_crops_dir]:
             for class_name in classes:

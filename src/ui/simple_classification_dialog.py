@@ -18,25 +18,54 @@ class SimpleClassificationDialog(QDialog):
     
     def __init__(self, crop_manager, default_typologies: list[str], additional_typologies: list[str], parent=None):
         super().__init__(parent)
-        self.default_typologies = default_typologies
         self.crop_manager = crop_manager
-        self.available_classes = ['person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck']
-        self.selected_class = 'car'  # Clase por defecto
         self.current_images = []
         self.changes_made = 0
-        
-        # Mapeo de clases a etiquetas en español
-        additional_labels = {elem.lower(): elem for elem in additional_typologies}
-        self.classic_labels = {
+
+        # Mapeo de nombres en inglés (carpetas) a español (interfaz)
+        self.english_to_spanish = {
             'person': 'Persona',
-            'bicycle': 'Bicicleta', 
+            'bicycle': 'Bicicleta',
             'car': 'Auto',
             'motorcycle': 'Moto',
             'bus': 'Bus',
-            'truck': 'Camion'
+            'truck': 'Camion',
+            'camioneta': 'Camioneta',
+            'microbus': 'Microbus',
+            'mototaxi': 'Mototaxi',
+            'omnibus': 'Omnibus',
+            'remolque': 'Remolque',
+            'taxi': 'Taxi',
+            'trailer': 'Trailer',
+            'otros': 'Otros',
         }
 
-        self.class_labels = {**self.classic_labels, **additional_labels}
+        # Nombres en español que deben ignorarse (usar versión inglés)
+        self.spanish_duplicates = {'auto', 'moto', 'persona', 'bicicleta', 'camion'}
+
+        # Detectar carpetas existentes en crops_od y crops_all
+        existing_classes = set()
+        for crops_dir in [self.crop_manager.od_crops_dir, self.crop_manager.all_crops_dir]:
+            if crops_dir.exists():
+                for subdir in crops_dir.iterdir():
+                    if subdir.is_dir():
+                        folder_name = subdir.name.lower()
+                        # Ignorar carpetas con nombres en español si ya existe la versión inglés
+                        if folder_name not in self.spanish_duplicates:
+                            existing_classes.add(folder_name)
+
+        # Crear mapeo de clases: key = nombre carpeta (inglés), value = nombre mostrado (español)
+        self.class_labels = {}
+        for cls in existing_classes:
+            display_name = self.english_to_spanish.get(cls, cls.title())
+            self.class_labels[cls] = display_name
+
+        # Si no hay carpetas, usar las clases por defecto
+        if not self.class_labels:
+            self.class_labels = dict(self.english_to_spanish)
+
+        self.available_classes = list(self.class_labels.keys())
+        self.selected_class = 'car' if 'car' in self.available_classes else (self.available_classes[0] if self.available_classes else 'car')
 
         self.setWindowTitle("Clasificación Manual Rápida")
         self.setMinimumSize(800, 600)
@@ -54,18 +83,12 @@ class SimpleClassificationDialog(QDialog):
         # Selector de clase
         controls_layout.addWidget(QLabel("Clase:"))
 
-        # Chequeo de clases por defecto
-        default_spa_labels = [typo for typo in self.classic_labels.values()]
-        if not sorted(default_spa_labels) == sorted(self.default_typologies):
-            error_message = QErrorMessage()
-            error_message.showMessage("La tipología por defecto ha sido alterada. Descargue nuevamente el archivo tipologias.txt.")
-        
         self.class_combo = QComboBox()
         for class_name, display_name in self.class_labels.items():
             self.class_combo.addItem(display_name, class_name)
-        
-        # Establecer "Carros" como selección por defecto
-        default_index = self.class_combo.findData('car')
+
+        # Establecer "Auto" como selección por defecto
+        default_index = self.class_combo.findData('auto')
         if default_index >= 0:
             self.class_combo.setCurrentIndex(default_index)
         
@@ -165,35 +188,40 @@ class SimpleClassificationDialog(QDialog):
             self.image_list.clearSelection()
             self.image_list.clear()
             self.current_images.clear()
-            
+
             selected_class = self.selected_class
             if not selected_class:
                 return
-            
+
+            # Extensiones de imagen soportadas
+            image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp']
+
             # Buscar imágenes en las carpetas
             image_paths = []
-            
+
             if self.all_crops_cb.isChecked():
                 all_class_dir = self.crop_manager.all_crops_dir / selected_class
                 if all_class_dir.exists():
-                    for img_file in all_class_dir.glob("*.jpg"):
-                        image_paths.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'all',
-                            'current_class': selected_class
-                        })
-            
+                    for ext in image_extensions:
+                        for img_file in all_class_dir.glob(ext):
+                            image_paths.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'all',
+                                'current_class': selected_class
+                            })
+
             if self.od_crops_cb.isChecked():
                 od_class_dir = self.crop_manager.od_crops_dir / selected_class
                 if od_class_dir.exists():
-                    for img_file in od_class_dir.glob("*.jpg"):
-                        image_paths.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'od',
-                            'current_class': selected_class
-                        })
+                    for ext in image_extensions:
+                        for img_file in od_class_dir.glob(ext):
+                            image_paths.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'current_class': selected_class
+                            })
             
             self.current_images = image_paths
             

@@ -230,6 +230,7 @@ class AnnotatorApp(QMainWindow):
             # Conectar acciones
             self.ui.actionLoadVideo.triggered.connect(self.load_video)
             self.ui.actionLoadData.triggered.connect(self.load_data)
+            self.ui.actionLoadResults.triggered.connect(self.load_results)
             self.ui.actionSaveSettings.triggered.connect(self.save_settings)
             self.ui.actionLoadSettings.triggered.connect(self.load_settings)
             self.ui.actionVideoInfo.triggered.connect(self.load_global_data)
@@ -317,27 +318,31 @@ class AnnotatorApp(QMainWindow):
         except Exception as e:
             QErrorMessage(self).showMessage(f"Error inicializando la aplicación: {e}")
 
-        try:
-            # Inicializar video
-            self.video_player = VideoPlayer(VIDEO_PATH, self.display_frame)
-            self.video_player.draw_frame(0)
+        # Inicializar video (puede ser None si no se cargó)
+        self.video_player = None
+        if VIDEO_PATH:
+            try:
+                self.video_player = VideoPlayer(VIDEO_PATH, self.display_frame)
+                self.video_player.draw_frame(0)
 
-            # Inicializar barra de progreso
-            total = int(self.video_player.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.ui.progressBar.setRange(0, max(1, total))
-            self.ui.progressBar.setValue(0)
-        except Exception as e:
-            QErrorMessage(self).showMessage(f"No se pudo cargar el video: {e}")
+                # Inicializar barra de progreso
+                total = int(self.video_player.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.ui.progressBar.setRange(0, max(1, total))
+                self.ui.progressBar.setValue(0)
+            except Exception as e:
+                self.video_player = None
+                QErrorMessage(self).showMessage(f"No se pudo cargar el video: {e}")
 
         # Inicializar tipos y pipeline de detección (YOLO + ByteTrack)
         try:
             # Establecer mapeo de tipos por defecto (para crear ODs y conteos)
             self.types_dict = dict(self.code_to_label)
             # Sincronizar stride de detección con stride de reproducción
-            self.detection_stride = self.video_player.display_rate
-            
+            if self.video_player:
+                self.detection_stride = self.video_player.display_rate
+
             # Inicializar crop manager
-            if CropManager is not None:
+            if CropManager is not None and VIDEO_PATH:
                 self.crop_manager = CropManager(VIDEO_PATH, TYPOLOGIES_PATH)
             else:
                 self.crop_manager = None
@@ -456,7 +461,124 @@ class AnnotatorApp(QMainWindow):
         
         if self.video_player:
             self.redraw_current_frame()
-    
+
+    def load_results(self):
+        """
+        Cargar resultados existentes (carpeta crops_od y base de datos de crops).
+        No requiere tener un video cargado.
+        """
+        # Seleccionar carpeta de crops_od
+        crops_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Seleccionar carpeta de resultados (crops_od)",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+
+        if not crops_dir:
+            return
+
+        # Buscar la base de datos de crops asociada
+        crops_dir_path = os.path.dirname(crops_dir)
+        crops_folder_name = os.path.basename(crops_dir)
+
+        # Intentar encontrar la base de datos de crops
+        # El nombre suele ser: {video_name}_crops.db
+        if crops_folder_name.endswith('_crops_od'):
+            video_name = crops_folder_name.replace('_crops_od', '')
+            crops_db_path = os.path.join(crops_dir_path, f"{video_name}_crops.db")
+        else:
+            video_name = crops_folder_name
+            crops_db_path = None
+
+        # También buscar Conteos.db
+        conteos_db_path = os.path.join(crops_dir_path, "Conteos.db")
+
+        loaded_items = []
+
+        # Inicializar CropManager desde la carpeta existente (sin necesidad de video)
+        if CropManager is not None:
+            try:
+                self.crop_manager = CropManager.load_existing(crops_dir, TYPOLOGIES_PATH)
+                loaded_items.append(f"CropManager inicializado para: {video_name}")
+            except Exception as e:
+                print(f"[ERROR] No se pudo inicializar CropManager: {e}")
+                self.crop_manager = None
+
+        # Cargar base de datos de crops si existe
+        if crops_db_path and os.path.exists(crops_db_path):
+            try:
+                conn = sqlite3.connect(crops_db_path)
+                cursor = conn.cursor()
+
+                # Verificar tablas disponibles
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row[0] for row in cursor.fetchall()]
+
+                if 'OdCrops' in tables:
+                    cursor.execute("SELECT COUNT(*) FROM OdCrops")
+                    od_count = cursor.fetchone()[0]
+                    loaded_items.append(f"OdCrops: {od_count} registros")
+
+                if 'AllCrops' in tables:
+                    cursor.execute("SELECT COUNT(*) FROM AllCrops")
+                    all_count = cursor.fetchone()[0]
+                    loaded_items.append(f"AllCrops: {all_count} registros")
+
+                conn.close()
+            except Exception as e:
+                print(f"[ERROR] No se pudo cargar crops.db: {e}")
+
+        # Cargar Conteos.db si existe
+        if os.path.exists(conteos_db_path):
+            try:
+                conn = sqlite3.connect(conteos_db_path)
+                cursor = conn.cursor()
+
+                cursor.execute('SELECT road_user_type, type_string FROM objects_type')
+                self.types_dict = {row[0]: row[1] for row in cursor.fetchall()}
+
+                cursor.execute('''
+                    SELECT o.object_id, o.road_user_type, b.frame_number, b.x_top_left, b.y_top_left, b.x_bottom_right, b.y_bottom_right
+                    FROM bounding_boxes b
+                    JOIN objects o ON b.object_id = o.object_id
+                ''')
+                self.bounding_boxes = [
+                    BoundingBox(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+                    for row in cursor.fetchall()
+                ]
+
+                loaded_items.append(f"Conteos.db: {len(self.bounding_boxes)} detecciones")
+                conn.close()
+            except Exception as e:
+                print(f"[ERROR] No se pudo cargar Conteos.db: {e}")
+
+        # Contar archivos de imagen en la carpeta (incluyendo subdirectorios)
+        image_extensions = ('.jpg', '.jpeg', '.png', '.bmp')
+        image_count = 0
+        if os.path.isdir(crops_dir):
+            for root, dirs, files in os.walk(crops_dir):
+                image_count += sum(1 for f in files if f.lower().endswith(image_extensions))
+        loaded_items.append(f"Imágenes en carpeta: {image_count}")
+
+        # Mostrar resumen
+        if loaded_items:
+            QMessageBox.information(
+                self,
+                "Resultados cargados",
+                "Se cargaron los siguientes datos:\n\n" + "\n".join(loaded_items) +
+                "\n\nAhora puede usar las herramientas de clasificación."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Sin resultados",
+                "No se encontraron resultados válidos en la carpeta seleccionada."
+            )
+
+        if self.video_player:
+            self.redraw_current_frame()
+
     def load_global_data(self):
         
         """
@@ -755,23 +877,16 @@ class AnnotatorApp(QMainWindow):
         
         try:
             typologies_path = "./templates/tipologias.txt"
-            default_typologies = []
-            additional_typologies = []
-            reading_section = "default"
+            all_typologies = []
             with open(typologies_path, "r", encoding='utf-8') as file:
                 for line in file:
                     clean_line = line.strip()
                     if not clean_line or clean_line.startswith("#"):
-                        if "# Adicionales" in clean_line:
-                            reading_section = "additional"
                         continue
-                    
-                    if reading_section == "default":
-                        default_typologies.append(clean_line)
-                    elif reading_section == "additional":
-                        additional_typologies.append(clean_line)
+                    all_typologies.append(clean_line)
 
-            dialog = SimpleClassificationDialog(self.crop_manager, default_typologies, additional_typologies, self)
+            # Pasar todas las tipologías como default, lista vacía como additional
+            dialog = SimpleClassificationDialog(self.crop_manager, all_typologies, [], self)
             dialog.exec_()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error abriendo clasificación simple: {e}")
@@ -779,22 +894,18 @@ class AnnotatorApp(QMainWindow):
     def update_database_from_crops(self):
         """Actualizar base de datos principal con clasificaciones manuales"""
         if self.crop_manager is None:
-            QMessageBox.warning(self, "Advertencia", 
-                               "No hay un video cargado o el sistema de crops no está disponible.")
+            QMessageBox.warning(self, "Advertencia",
+                               "No hay resultados cargados. Cargue un video o resultados primero.")
             return
-        
+
         if DatabaseUpdateThread is None:
-            QMessageBox.critical(self, "Error", 
+            QMessageBox.critical(self, "Error",
                                "El módulo de actualización de base de datos no está disponible.")
             return
-        
-        if not hasattr(self, 'video_player') or self.video_player is None:
-            QMessageBox.warning(self, "Advertencia", "No hay un video cargado.")
-            return
-        
-        # Ruta de la base de datos principal
-        video_dir = os.path.dirname(VIDEO_PATH)
-        video_name = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
+
+        # Obtener ruta de la base de datos desde el crop_manager
+        video_dir = str(self.crop_manager.video_dir)
+        video_name = self.crop_manager.video_name
         main_db_path = os.path.join(video_dir, "Conteos.db")
         
         if not os.path.exists(main_db_path):
@@ -1829,6 +1940,7 @@ class WelcomeDialog(QDialog):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    welcome = WelcomeDialog()
-    welcome.show()
+    # Iniciar directamente la aplicación (sin cargar video ni configuraciones)
+    annotator = AnnotatorApp()
+    annotator.show()
     sys.exit(app.exec_())
