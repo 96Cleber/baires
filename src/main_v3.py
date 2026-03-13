@@ -544,20 +544,30 @@ class AnnotatorApp(QMainWindow):
                 conn = sqlite3.connect(conteos_db_path)
                 cursor = conn.cursor()
 
-                cursor.execute('SELECT road_user_type, type_string FROM objects_type')
-                self.types_dict = {row[0]: row[1] for row in cursor.fetchall()}
+                # Verificar si la tabla objects_type existe
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='objects_type'")
+                if cursor.fetchone():
+                    cursor.execute('SELECT road_user_type, type_string FROM objects_type')
+                    self.types_dict = {row[0]: row[1] for row in cursor.fetchall()}
 
-                cursor.execute('''
-                    SELECT o.object_id, o.road_user_type, b.frame_number, b.x_top_left, b.y_top_left, b.x_bottom_right, b.y_bottom_right
-                    FROM bounding_boxes b
-                    JOIN objects o ON b.object_id = o.object_id
-                ''')
-                self.bounding_boxes = [
-                    BoundingBox(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
-                    for row in cursor.fetchall()
-                ]
+                # Verificar si las tablas bounding_boxes y objects existen
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bounding_boxes'")
+                has_bboxes = cursor.fetchone() is not None
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='objects'")
+                has_objects = cursor.fetchone() is not None
 
-                loaded_items.append(f"Conteos.db: {len(self.bounding_boxes)} detecciones")
+                if has_bboxes and has_objects:
+                    cursor.execute('''
+                        SELECT o.object_id, o.road_user_type, b.frame_number, b.x_top_left, b.y_top_left, b.x_bottom_right, b.y_bottom_right
+                        FROM bounding_boxes b
+                        JOIN objects o ON b.object_id = o.object_id
+                    ''')
+                    self.bounding_boxes = [
+                        BoundingBox(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+                        for row in cursor.fetchall()
+                    ]
+                    loaded_items.append(f"Conteos.db: {len(self.bounding_boxes)} detecciones")
+
                 conn.close()
             except Exception as e:
                 print(f"[ERROR] No se pudo cargar Conteos.db: {e}")
