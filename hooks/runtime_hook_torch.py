@@ -20,21 +20,33 @@ def setup_torch_path():
         torch_paths = [
             os.path.join(base_path, 'torch', 'lib'),
             os.path.join(base_path, 'torch', 'bin'),
+            os.path.join(base_path, 'torch', '_C'),
             os.path.join(base_path, 'torch'),
+            os.path.join(base_path, 'lib'),
             base_path,
         ]
 
-        # Agregar al PATH del sistema
+        # Agregar al PATH del sistema (al inicio para prioridad)
         current_path = os.environ.get('PATH', '')
-        new_paths = [p for p in torch_paths if os.path.exists(p)]
+        new_paths = [p for p in torch_paths if os.path.isdir(p)]
 
         if new_paths:
             os.environ['PATH'] = os.pathsep.join(new_paths) + os.pathsep + current_path
 
-        # También agregar a sys.path si es necesario
+        # También configurar DLL directories en Windows
+        if sys.platform == 'win32':
+            try:
+                # Python 3.8+ tiene add_dll_directory
+                for p in new_paths:
+                    if os.path.isdir(p):
+                        os.add_dll_directory(p)
+            except AttributeError:
+                pass  # Python < 3.8, usar solo PATH
+
+        # Agregar a sys.path si es necesario
         for p in new_paths:
             if p not in sys.path:
                 sys.path.insert(0, p)
 
-# Ejecutar la configuración
+# Ejecutar la configuración inmediatamente
 setup_torch_path()

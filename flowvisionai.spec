@@ -6,7 +6,7 @@ Genera un ejecutable standalone de la aplicación.
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs, collect_all
 
 block_cipher = None
 
@@ -16,9 +16,8 @@ BASE_PATH = os.path.dirname(os.path.abspath(SPEC))
 # Recolectar datos de ultralytics (YOLO)
 ultralytics_datas = collect_data_files('ultralytics')
 
-# Recolectar DLLs de torch para evitar WinError 1114
-torch_binaries = collect_dynamic_libs('torch')
-torch_datas = collect_data_files('torch')
+# Recolectar TODO de torch (datas, binaries, hiddenimports)
+torch_datas, torch_binaries, torch_hiddenimports = collect_all('torch')
 
 # Recolectar submódulos ocultos
 hidden_imports = [
@@ -30,6 +29,8 @@ hidden_imports = [
     'numpy',
     'pandas',
     'torch',
+    'torch._C',
+    'torch.utils',
     'torchvision',
     'ultralytics',
     'shapely',
@@ -47,8 +48,9 @@ hidden_imports = [
     'PIL.Image',
 ]
 
-# Submódulos de ultralytics
+# Submódulos de ultralytics y torch
 hidden_imports += collect_submodules('ultralytics')
+hidden_imports += torch_hiddenimports
 
 a = Analysis(
     [os.path.join(BASE_PATH, 'src', 'main_v3.py')],
@@ -90,7 +92,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Desactivar UPX para evitar problemas con DLLs de torch
     console=True,  # True para ver errores en consola
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -105,7 +107,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # Desactivar UPX para evitar problemas con DLLs
     upx_exclude=[],
     name='FlowVisionAI',
 )

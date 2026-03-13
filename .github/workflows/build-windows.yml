@@ -20,16 +20,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'  # Python 3.11 es más estable con PyTorch + PyInstaller
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Instalar PyTorch CPU primero para evitar WinError 1114
+          # Instalar PyTorch CPU primero para evitar problemas de DLL
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements_windows.txt
           pip install pyinstaller
+
+      - name: Create hooks directory
+        run: |
+          if (!(Test-Path "hooks")) { New-Item -ItemType Directory -Path "hooks" }
+        shell: pwsh
 
       - name: Create weights directory
         run: |
