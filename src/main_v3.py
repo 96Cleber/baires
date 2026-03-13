@@ -41,25 +41,52 @@ from tools.models import *
 from tools.excel_orquestor import generate_excel_report
 
 # Backend detector pipeline (YOLO + ByteTrack)
+# Importar módulos individualmente para mejor diagnóstico de errores
+_import_errors = []
+
 try:
     from tools.detection_pipeline import DetectorPipeline, LABEL_TO_CODE, CODE_TO_LABEL
-    from tools.crop_manager import CropManager
-    from ui.manual_classification_dialog import (ManualClassificationDialog,
-                                               DatabaseUpdateThread,
-                                               YoloRetrainingDialog)
-    from ui.simple_classification_dialog import SimpleClassificationDialog
-    from ui.stride_config_dialog import StrideConfigDialog
-except Exception:
-    DetectorPipeline = None # type: ignore
-    CropManager = None  # type: ignore
-    ManualClassificationDialog = None  # type: ignore
-    DatabaseUpdateThread = None  # type: ignore
-    YoloRetrainingDialog = None  # type: ignore
-    SimpleClassificationDialog = None  # type: ignore
+except Exception as e:
+    DetectorPipeline = None  # type: ignore
     LABEL_TO_CODE = {
         "person": 1, "bicycle": 2, "car": 3, "motorcycle": 4, "bus": 5, "truck": 6
     }
     CODE_TO_LABEL = {v: k for k, v in LABEL_TO_CODE.items()}
+    _import_errors.append(f"detection_pipeline: {e}")
+
+try:
+    from tools.crop_manager import CropManager
+except Exception as e:
+    CropManager = None  # type: ignore
+    _import_errors.append(f"crop_manager: {e}")
+
+try:
+    from ui.manual_classification_dialog import (ManualClassificationDialog,
+                                               DatabaseUpdateThread,
+                                               YoloRetrainingDialog)
+except Exception as e:
+    ManualClassificationDialog = None  # type: ignore
+    DatabaseUpdateThread = None  # type: ignore
+    YoloRetrainingDialog = None  # type: ignore
+    _import_errors.append(f"manual_classification_dialog: {e}")
+
+try:
+    from ui.simple_classification_dialog import SimpleClassificationDialog
+except Exception as e:
+    SimpleClassificationDialog = None  # type: ignore
+    _import_errors.append(f"simple_classification_dialog: {e}")
+
+try:
+    from ui.stride_config_dialog import StrideConfigDialog
+except Exception as e:
+    StrideConfigDialog = None  # type: ignore
+    _import_errors.append(f"stride_config_dialog: {e}")
+
+# Registrar errores de importación si los hay
+if _import_errors:
+    print("[ADVERTENCIA] Errores de importación:")
+    for err in _import_errors:
+        print(f"  - {err}")
 
 #Global variables
 VIDEO_PATH = None
@@ -165,6 +192,14 @@ class AnnotatorApp(QMainWindow):
         super(AnnotatorApp, self).__init__()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+
+        # Mostrar errores de importación si los hay
+        if _import_errors:
+            error_msg = "Algunos módulos no se pudieron cargar:\n\n"
+            error_msg += "\n".join(f"• {err}" for err in _import_errors)
+            error_msg += "\n\nAlgunas funciones pueden no estar disponibles."
+            QMessageBox.warning(self, "Advertencia de Módulos", error_msg)
+
         # Inicializar configuración
         try:
             # Diccionario de tipos (código->string) y pipeline de detección
@@ -512,7 +547,12 @@ class AnnotatorApp(QMainWindow):
                 loaded_items.append(f"CropManager inicializado para: {video_name}")
             except Exception as e:
                 print(f"[ERROR] No se pudo inicializar CropManager: {e}")
+                QMessageBox.warning(self, "Advertencia",
+                                   f"No se pudo inicializar el gestor de crops: {e}")
                 self.crop_manager = None
+        else:
+            QMessageBox.warning(self, "Advertencia",
+                               "El módulo CropManager no está disponible.")
 
         # Cargar base de datos de crops si existe
         if crops_db_path and os.path.exists(crops_db_path):
@@ -866,8 +906,10 @@ class AnnotatorApp(QMainWindow):
     def open_manual_classification(self):
         """Abrir diálogo de clasificación manual"""
         if self.crop_manager is None:
-            QMessageBox.warning(self, "Advertencia", 
-                               "No hay un video cargado o el sistema de crops no está disponible.")
+            QMessageBox.warning(self, "Advertencia",
+                               "No hay resultados cargados.\n\n"
+                               "Use 'Archivo > Cargar Resultados' para cargar una carpeta de crops existente,\n"
+                               "o procese un video para generar los crops.")
             return
         
         if ManualClassificationDialog is None:
@@ -885,8 +927,10 @@ class AnnotatorApp(QMainWindow):
     def open_classification_gallery(self):
         """Abrir galería de clasificación manual"""
         if self.crop_manager is None:
-            QMessageBox.warning(self, "Advertencia", 
-                               "No hay un video cargado o el sistema de crops no está disponible.")
+            QMessageBox.warning(self, "Advertencia",
+                               "No hay resultados cargados.\n\n"
+                               "Use 'Archivo > Cargar Resultados' para cargar una carpeta de crops existente,\n"
+                               "o procese un video para generar los crops.")
             return
         
         if SimpleClassificationDialog is None:
