@@ -69,11 +69,19 @@ a = Analysis(
     ] + ultralytics_datas + torch_datas,
     hiddenimports=hidden_imports,
     hookspath=[os.path.join(BASE_PATH, 'hooks')],  # Usar hooks personalizados
-    hooksconfig={},
-    runtime_hooks=[os.path.join(BASE_PATH, 'hooks', 'runtime_hook_torch.py')],  # Hook de runtime para torch
+    hooksconfig={
+        'multiprocessing': {
+            'start_method': None,  # Deshabilitar runtime hook de multiprocessing
+        },
+    },
+    runtime_hooks=[
+        os.path.join(BASE_PATH, 'hooks', 'pyi_rth_torch_first.py'),  # Debe ejecutarse PRIMERO
+        os.path.join(BASE_PATH, 'hooks', 'runtime_hook_torch.py'),
+    ],
     excludes=[
         'tkinter',
         'matplotlib.backends.backend_tkagg',
+        'torch.multiprocessing',  # Excluir para evitar importación circular
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
