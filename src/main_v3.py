@@ -2001,8 +2001,44 @@ class WelcomeDialog(QDialog):
             annotator.show()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    # Iniciar directamente la aplicación (sin cargar video ni configuraciones)
-    annotator = AnnotatorApp()
-    annotator.show()
-    sys.exit(app.exec_())
+    # Configurar logging para diagnóstico de errores
+    log_path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__), 'flowvisionai_error.log')
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+
+    try:
+        # Registrar errores de importación
+        if _import_errors:
+            logging.warning("Errores de importación:")
+            for err in _import_errors:
+                logging.warning(f"  - {err}")
+
+        app = QApplication(sys.argv)
+        # Iniciar directamente la aplicación (sin cargar video ni configuraciones)
+        annotator = AnnotatorApp()
+        annotator.show()
+        sys.exit(app.exec_())
+    except Exception as e:
+        import traceback
+        error_msg = f"Error fatal: {e}\n\n{traceback.format_exc()}"
+        logging.error(error_msg)
+
+        # Intentar mostrar mensaje de error al usuario
+        try:
+            from PyQt5.QtWidgets import QApplication, QMessageBox
+            if not QApplication.instance():
+                app = QApplication(sys.argv)
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("Error Fatal")
+            msg.setText(f"La aplicación encontró un error:\n\n{e}")
+            msg.setDetailedText(traceback.format_exc())
+            msg.setInformativeText(f"Ver detalles en: {log_path}")
+            msg.exec_()
+        except:
+            pass
+
+        sys.exit(1)
