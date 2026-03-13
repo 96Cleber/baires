@@ -37,7 +37,8 @@ setuptools>=69.0.0
 shapely>=2.0.0
 six>=1.16.0
 sympy>=1.12.0
-# PyTorch CPU para Windows (sin CUDA para reducir tamaño)
+# PyTorch CPU para Windows (sin CUDA para reducir tamaño y evitar WinError 1114)
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.2.0
 torchvision>=0.17.0
 tqdm>=4.66.0

@@ -25,19 +25,16 @@ class SimpleClassificationDialog(QDialog):
         # Clases válidas: nombre carpeta -> nombre mostrado
         # Usar siempre estas clases, sin detectar carpetas
         self.class_labels = {
-            'person': 'Persona',
-            'bicycle': 'Bicicleta',
-            'car': 'Auto',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camion',
-            'camioneta': 'Camioneta',
-            'microbus': 'Microbus',
+            'bicicleta': 'Bicicleta',
+            'triciclo': 'Triciclo',
+            'persona': 'Persona',
+            'combi': 'Combi',
+            'micro': 'Micro',
             'mototaxi': 'Mototaxi',
-            'omnibus': 'Omnibus',
-            'remolque': 'Remolque',
             'taxi': 'Taxi',
-            'trailer': 'Trailer',
+            'auto': 'Auto',
+            'moto': 'Moto',
+            'camion': 'Camion',
             'otros': 'Otros',
         }
 

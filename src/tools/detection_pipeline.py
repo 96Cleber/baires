@@ -23,6 +23,20 @@ LABEL_TO_CODE = {name: idx + 1 for idx, name in enumerate(LABEL_ORDER)}
 CODE_TO_LABEL = {v: k for k, v in LABEL_TO_CODE.items()}
 ALLOWED_LABELS = set(LABEL_ORDER)
 
+# Mapeo de clases YOLO a tipologías personalizadas
+YOLO_TO_TIPOLOGIA = {
+    'person': 'persona',
+    'bicycle': 'bicicleta',
+    'car': 'auto',
+    'motorcycle': 'moto',
+    'bus': 'micro',
+    'truck': 'camion',
+}
+
+def get_tipologia(yolo_label: str) -> str:
+    """Convertir etiqueta YOLO a tipología personalizada"""
+    return YOLO_TO_TIPOLOGIA.get(yolo_label, yolo_label)
+
 
 def robust_vehicle_classification(bbox: List[float], label: str, score: float, frame_shape: Tuple[int, int, int]) -> str:
     x1, y1, x2, y2 = bbox

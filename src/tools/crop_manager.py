@@ -199,11 +199,10 @@ class CropManager:
     
     def _create_class_directories(self):
         """Crear directorios para cada clase de vehículo"""
-        # Clases en inglés para las carpetas (compatibles con YOLO)
+        # Clases para las carpetas de crops
         classes = [
-            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
-            'camioneta', 'microbus', 'mototaxi', 'omnibus',
-            'remolque', 'taxi', 'trailer', 'otros'
+            'bicicleta', 'triciclo', 'persona', 'combi', 'micro',
+            'mototaxi', 'taxi', 'auto', 'moto', 'camion', 'otros'
         ]
         
         for crop_dir in [self.all_crops_dir, self.od_crops_dir]:

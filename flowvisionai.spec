@@ -6,7 +6,7 @@ Genera un ejecutable standalone de la aplicación.
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -15,6 +15,10 @@ BASE_PATH = os.path.dirname(os.path.abspath(SPEC))
 
 # Recolectar datos de ultralytics (YOLO)
 ultralytics_datas = collect_data_files('ultralytics')
+
+# Recolectar DLLs de torch para evitar WinError 1114
+torch_binaries = collect_dynamic_libs('torch')
+torch_datas = collect_data_files('torch')
 
 # Recolectar submódulos ocultos
 hidden_imports = [
@@ -52,7 +56,7 @@ a = Analysis(
         os.path.join(BASE_PATH, 'src'),
         BASE_PATH,
     ],
-    binaries=[],
+    binaries=torch_binaries,  # Incluir DLLs de torch
     datas=[
         # Archivos UI de PyQt5
         (os.path.join(BASE_PATH, 'src', 'ui', '*.ui'), 'ui'),
@@ -60,11 +64,11 @@ a = Analysis(
         (os.path.join(BASE_PATH, 'templates'), 'templates'),
         # Pesos de YOLO (si existen localmente)
         (os.path.join(BASE_PATH, 'weights'), 'weights'),
-    ] + ultralytics_datas,
+    ] + ultralytics_datas + torch_datas,
     hiddenimports=hidden_imports,
-    hookspath=[],
+    hookspath=[os.path.join(BASE_PATH, 'hooks')],  # Usar hooks personalizados
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[os.path.join(BASE_PATH, 'hooks', 'runtime_hook_torch.py')],  # Hook de runtime para torch
     excludes=[
         'tkinter',
         'matplotlib.backends.backend_tkagg',
