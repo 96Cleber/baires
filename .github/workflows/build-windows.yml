@@ -20,39 +20,96 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'  # Python 3.11 es más estable con PyTorch + PyInstaller
+          python-version: '3.10'  # Python 3.10 es más estable con PyTorch + PyInstaller
           cache: 'pip'
+
+      - name: Install Visual C++ Redistributable
+        run: |
+          # Descargar e instalar VC++ Redistributable (requerido por PyTorch)
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vc_redist.x64.exe"
+          Start-Process -FilePath "vc_redist.x64.exe" -Args "/install /quiet /norestart" -Wait
+        shell: pwsh
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Instalar PyTorch CPU primero para evitar problemas de DLL
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements_windows.txt
-          pip install pyinstaller
 
-      - name: Create hooks directory
-        run: |
-          if (!(Test-Path "hooks")) { New-Item -ItemType Directory -Path "hooks" }
+          # Instalar PyTorch CPU versión específica (2.1.2 es estable con PyInstaller)
+          pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
+
+          # Instalar resto de dependencias
+          pip install -r requirements_windows.txt
+          pip install pyinstaller==6.3.0
         shell: pwsh
 
-      - name: Create weights directory
+      - name: Create required directories
         run: |
           if (!(Test-Path "weights")) { New-Item -ItemType Directory -Path "weights" }
+          if (!(Test-Path "hooks")) { New-Item -ItemType Directory -Path "hooks" }
         shell: pwsh
 
       - name: Build executable
         run: |
           pyinstaller flowvisionai.spec --noconfirm
+        shell: pwsh
 
-      - name: Fix torch multiprocessing issue
+      - name: Fix DLL issues post-build
         run: |
-          # Eliminar el hook problemático de multiprocessing que causa importación circular con torch
-          $hookFile = "dist/FlowVisionAI/_internal/pyi_rth_multiprocessing.py"
+          $internalDir = "dist/FlowVisionAI/_internal"
+          $torchLibDir = "$internalDir/torch/lib"
+
+          # Verificar que existe el directorio torch/lib
+          if (Test-Path $torchLibDir) {
+            Write-Host "Torch lib directory found: $torchLibDir"
+
+            # Copiar DLLs de torch/lib al directorio raíz _internal para que estén en el PATH
+            Get-ChildItem -Path $torchLibDir -Filter "*.dll" | ForEach-Object {
+              $dest = "$internalDir/$($_.Name)"
+              if (!(Test-Path $dest)) {
+                Copy-Item $_.FullName -Destination $dest
+                Write-Host "Copied: $($_.Name)"
+              }
+            }
+          }
+
+          # Reemplazar el hook problemático de multiprocessing
+          $hookFile = "$internalDir/pyi_rth_multiprocessing.py"
           if (Test-Path $hookFile) {
-            # Reemplazar con un hook vacío que no importe torch
-            Set-Content -Path $hookFile -Value "# Hook deshabilitado para evitar importacion circular con torch`nimport multiprocessing`ntry:`n    multiprocessing.set_start_method('spawn', force=True)`nexcept RuntimeError:`n    pass"
-            Write-Host "Hook de multiprocessing reemplazado"
+            $newContent = @"
+# Hook modificado para evitar importacion circular con torch
+import sys
+import os
+
+# Configurar PATH para DLLs antes de cualquier importacion
+if hasattr(sys, '_MEIPASS'):
+    dll_path = os.path.join(sys._MEIPASS, 'torch', 'lib')
+    if os.path.exists(dll_path):
+        os.environ['PATH'] = dll_path + os.pathsep + os.environ.get('PATH', '')
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(dll_path)
+            except OSError:
+                pass
+
+import multiprocessing
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
+"@
+            Set-Content -Path $hookFile -Value $newContent -Encoding UTF8
+            Write-Host "Hook de multiprocessing actualizado"
+          }
+        shell: pwsh
+
+      - name: Verify build
+        run: |
+          Write-Host "Contenido de dist/FlowVisionAI:"
+          Get-ChildItem -Path "dist/FlowVisionAI" -Recurse | Select-Object -First 50
+
+          Write-Host "`nVerificando DLLs de torch:"
+          if (Test-Path "dist/FlowVisionAI/_internal/torch/lib") {
+            Get-ChildItem -Path "dist/FlowVisionAI/_internal/torch/lib" -Filter "*.dll" | Select-Object Name
           }
         shell: pwsh
 
