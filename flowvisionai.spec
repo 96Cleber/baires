@@ -75,7 +75,8 @@ a = Analysis(
         },
     },
     runtime_hooks=[
-        os.path.join(BASE_PATH, 'hooks', 'pyi_rth_torch_first.py'),  # Debe ejecutarse PRIMERO
+        os.path.join(BASE_PATH, 'hooks', 'pyi_rth_multiprocessing.py'),  # Reemplaza el hook de PyInstaller
+        os.path.join(BASE_PATH, 'hooks', 'pyi_rth_torch_first.py'),
         os.path.join(BASE_PATH, 'hooks', 'runtime_hook_torch.py'),
     ],
     excludes=[

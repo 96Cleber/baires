@@ -45,6 +45,17 @@ jobs:
         run: |
           pyinstaller flowvisionai.spec --noconfirm
 
+      - name: Fix torch multiprocessing issue
+        run: |
+          # Eliminar el hook problemático de multiprocessing que causa importación circular con torch
+          $hookFile = "dist/FlowVisionAI/_internal/pyi_rth_multiprocessing.py"
+          if (Test-Path $hookFile) {
+            # Reemplazar con un hook vacío que no importe torch
+            Set-Content -Path $hookFile -Value "# Hook deshabilitado para evitar importacion circular con torch`nimport multiprocessing`ntry:`n    multiprocessing.set_start_method('spawn', force=True)`nexcept RuntimeError:`n    pass"
+            Write-Host "Hook de multiprocessing reemplazado"
+          }
+        shell: pwsh
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
