@@ -201,8 +201,9 @@ class CropManager:
         """Crear directorios para cada clase de vehículo"""
         # Clases para las carpetas de crops
         classes = [
-            'bicicleta', 'triciclo', 'persona', 'combi', 'micro',
-            'mototaxi', 'taxi', 'auto', 'moto', 'camion', 'otros'
+            'auto', 'bicicleta', 'bus', 'camion', 'camioneta', 'combi',
+            'microbus', 'moto', 'mototaxi', 'omnibus', 'persona',
+            'remolque', 'taxi', 'trailer', 'otros'
         ]
         
         for crop_dir in [self.all_crops_dir, self.od_crops_dir]:

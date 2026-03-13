@@ -29,7 +29,7 @@ YOLO_TO_TIPOLOGIA = {
     'bicycle': 'bicicleta',
     'car': 'auto',
     'motorcycle': 'moto',
-    'bus': 'micro',
+    'bus': 'bus',
     'truck': 'camion',
 }
 

@@ -1,13 +1,17 @@
 # Las tipologías no deben tener tildes y empezar en mayúscula.
 
-Bicicleta
-Triciclo
-Persona
-Combi
-Micro
-Mototaxi
-Taxi
 Auto
-Moto
+Bicicleta
+Bus
 Camion
+Camioneta
+Combi
+Microbus
+Moto
+Mototaxi
+Omnibus
+Persona
+Remolque
+Taxi
+Trailer
 Otros

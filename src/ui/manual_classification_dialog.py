@@ -22,7 +22,7 @@ class ManualClassificationDialog(QDialog):
         self.current_crops = []
         self.current_index = 0
         self.classifications_changed = []
-        self.available_classes = ['bicicleta', 'triciclo', 'persona', 'combi', 'micro', 'mototaxi', 'taxi', 'auto', 'moto', 'camion', 'otros']
+        self.available_classes = ['auto', 'bicicleta', 'bus', 'camion', 'camioneta', 'combi', 'microbus', 'moto', 'mototaxi', 'omnibus', 'persona', 'remolque', 'taxi', 'trailer', 'otros']
         self.custom_classes = []
         
         self.setWindowTitle("Clasificación Manual de Detecciones")
