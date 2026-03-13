@@ -63,7 +63,16 @@ except Exception:
 
 #Global variables
 VIDEO_PATH = None
-TYPOLOGIES_PATH = "./templates/tipologias.txt"
+
+def get_resource_path(relative_path: str) -> str:
+    """Obtener ruta de recurso, compatible con PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        # Ejecutable PyInstaller
+        return os.path.join(sys._MEIPASS, relative_path)
+    # Desarrollo normal
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), relative_path)
+
+TYPOLOGIES_PATH = get_resource_path("templates/tipologias.txt")
 
 # DEMO_MODE: Cuando es True, la aplicación permite cargar y visualizar videos
 # pero NO permite procesar/detectar vehículos. Útil para versiones de demostración.
@@ -876,9 +885,8 @@ class AnnotatorApp(QMainWindow):
             return
         
         try:
-            typologies_path = "./templates/tipologias.txt"
             all_typologies = []
-            with open(typologies_path, "r", encoding='utf-8') as file:
+            with open(TYPOLOGIES_PATH, "r", encoding='utf-8') as file:
                 for line in file:
                     clean_line = line.strip()
                     if not clean_line or clean_line.startswith("#"):

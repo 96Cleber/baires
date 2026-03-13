@@ -4,6 +4,7 @@ Maneja crops para todas las detecciones y para cruces O/D específicamente.
 """
 
 import os
+import sys
 import cv2
 import json
 import sqlite3
@@ -13,6 +14,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from queue import Queue
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Obtener ruta de recurso, compatible con PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        # Ejecutable PyInstaller
+        return os.path.join(sys._MEIPASS, relative_path)
+    # Desarrollo normal
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), relative_path)
 
 try:
     from PyQt5.QtCore import QThread, pyqtSignal
@@ -79,7 +89,7 @@ class CropManager:
     """Gestiona el guardado y manejo de crops de detecciones"""
 
     @classmethod
-    def load_existing(cls, crops_od_dir: str, typologies_path: str = "./templates/tipologias.txt"):
+    def load_existing(cls, crops_od_dir: str, typologies_path: str = None):
         """
         Cargar un CropManager desde una carpeta de crops existente.
         Útil para cargar resultados sin necesidad del video original.
@@ -91,6 +101,10 @@ class CropManager:
         Returns:
             CropManager configurado para la carpeta existente
         """
+        # Usar ruta por defecto si no se especifica
+        if typologies_path is None:
+            typologies_path = get_resource_path("templates/tipologias.txt")
+
         crops_path = Path(crops_od_dir)
         parent_dir = crops_path.parent
         folder_name = crops_path.name

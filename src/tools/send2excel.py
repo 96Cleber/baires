@@ -1,5 +1,15 @@
+import os
+import sys
 from openpyxl import load_workbook
 from read_db import read_db
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Obtener ruta de recurso, compatible con PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), relative_path)
+
 
 # Reading dbPath
 dbPath = "./resources/data.sqlite"
@@ -8,7 +18,7 @@ print(df)
 print(type_string)
 
 # Writing to excel
-templatePath = "./templates/template.xlsx"
+templatePath = get_resource_path("templates/template.xlsx")
 wb = load_workbook(templatePath)
 
 # Writing to excel

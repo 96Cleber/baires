@@ -11,6 +11,13 @@ import json
 from tools.outputs.write_counts import write_counts_to_excel
 from datetime import datetime
 
+
+def get_resource_path(relative_path: str) -> str:
+    """Obtener ruta de recurso, compatible con PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), relative_path)
+
 def _timestamp_to_quarter_index(timestamp_str: str) -> int:
     """Convert timestamp string to quarter hour index (1-96).
     
@@ -64,14 +71,14 @@ def generate_excel_report(db_path: str) -> None:
     # Creation of report excel
     os.makedirs(os.path.join(db_dir, "reports"), exist_ok=True)
     shutil.copy(
-        "./templates/template.xlsx",
+        get_resource_path("templates/template.xlsx"),
         excel_report_path
     )
     log.info(f"Created report template at: {excel_report_path}")
 
     # Reading typologies
     total_typologies = []
-    with open("./templates/tipologias.txt", 'r', encoding='utf-8') as file:
+    with open(get_resource_path("templates/tipologias.txt"), 'r', encoding='utf-8') as file:
         for line in file:
             clean_line = line.strip()
             if not clean_line.startswith('#') and not clean_line == "":
