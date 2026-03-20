@@ -1,0 +1,271 @@
+# -*- coding: utf-8 -*-
+"""
+FlowVisionAI Lite - Solo clasificacion de crops
+Punto de entrada ligero sin dependencias pesadas (YOLO, PyTorch)
+"""
+
+import sys
+import os
+from pathlib import Path
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Obtener ruta de recurso, compatible con PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), relative_path)
+
+
+# Ruta al archivo de tipologias
+TYPOLOGIES_PATH = get_resource_path("templates/tipologias.txt")
+
+
+def load_typologies() -> list:
+    """Cargar tipologias desde archivo"""
+    typologies = []
+    try:
+        if os.path.exists(TYPOLOGIES_PATH):
+            with open(TYPOLOGIES_PATH, "r", encoding='utf-8') as f:
+                for line in f:
+                    clean = line.strip()
+                    if clean and not clean.startswith("#"):
+                        typologies.append(clean)
+    except Exception as e:
+        print(f"Error cargando tipologias: {e}")
+
+    # Tipologias por defecto si no se pudo cargar el archivo
+    if not typologies:
+        typologies = [
+            "Auto", "Bicicleta", "Bus", "Camion", "Camioneta",
+            "Combi", "Microbus", "Moto", "Mototaxi", "Omnibus",
+            "Persona", "Remolque", "Taxi", "Trailer", "Otros"
+        ]
+    return typologies
+
+
+def main():
+    from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog,
+                                  QVBoxLayout, QHBoxLayout, QPushButton,
+                                  QWidget, QLabel, QMessageBox, QFrame)
+    from PyQt5.QtGui import QFont
+    from PyQt5.QtCore import Qt
+
+    from tools.crop_manager import CropManager
+    from ui.classification_gallery_dialog import ClassificationGalleryDialog
+
+    class LiteMainWindow(QMainWindow):
+        """Ventana principal de FlowVisionAI Lite"""
+
+        def __init__(self):
+            super().__init__()
+            self.crop_manager = None
+            self.crops_dir = None
+            self.init_ui()
+
+        def init_ui(self):
+            """Inicializar interfaz"""
+            self.setWindowTitle("FlowVisionAI Lite - Clasificacion de Crops")
+            self.setMinimumSize(600, 400)
+
+            central = QWidget()
+            self.setCentralWidget(central)
+            layout = QVBoxLayout(central)
+            layout.setSpacing(20)
+            layout.setContentsMargins(40, 40, 40, 40)
+
+            # Titulo
+            title = QLabel("FlowVisionAI Lite")
+            title.setFont(QFont("Arial", 24, QFont.Bold))
+            title.setAlignment(Qt.AlignCenter)
+            layout.addWidget(title)
+
+            subtitle = QLabel("Clasificacion manual de crops")
+            subtitle.setFont(QFont("Arial", 12))
+            subtitle.setAlignment(Qt.AlignCenter)
+            subtitle.setStyleSheet("color: #666;")
+            layout.addWidget(subtitle)
+
+            layout.addSpacing(20)
+
+            # Separador
+            line = QFrame()
+            line.setFrameShape(QFrame.HLine)
+            line.setStyleSheet("background-color: #ddd;")
+            layout.addWidget(line)
+
+            layout.addSpacing(20)
+
+            # Estado actual
+            self.status_label = QLabel("No hay carpeta de crops cargada")
+            self.status_label.setAlignment(Qt.AlignCenter)
+            self.status_label.setStyleSheet("color: #888; font-style: italic;")
+            layout.addWidget(self.status_label)
+
+            layout.addSpacing(20)
+
+            # Botones
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+
+            self.load_btn = QPushButton("Cargar Carpeta de Crops")
+            self.load_btn.setMinimumSize(200, 50)
+            self.load_btn.setFont(QFont("Arial", 11))
+            self.load_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #0078d4;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 10px 20px;
+                }
+                QPushButton:hover {
+                    background-color: #006cbd;
+                }
+                QPushButton:pressed {
+                    background-color: #005a9e;
+                }
+            """)
+            self.load_btn.clicked.connect(self.load_crops_folder)
+            btn_layout.addWidget(self.load_btn)
+
+            self.classify_btn = QPushButton("Abrir Clasificador")
+            self.classify_btn.setMinimumSize(200, 50)
+            self.classify_btn.setFont(QFont("Arial", 11))
+            self.classify_btn.setEnabled(False)
+            self.classify_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 10px 20px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+                QPushButton:pressed {
+                    background-color: #1e7e34;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                    color: #888888;
+                }
+            """)
+            self.classify_btn.clicked.connect(self.open_classifier)
+            btn_layout.addWidget(self.classify_btn)
+
+            btn_layout.addStretch()
+            layout.addLayout(btn_layout)
+
+            layout.addStretch()
+
+            # Info
+            info_label = QLabel("Version Lite: Solo clasificacion de crops (sin procesamiento de video)")
+            info_label.setAlignment(Qt.AlignCenter)
+            info_label.setStyleSheet("color: #aaa; font-size: 10px;")
+            layout.addWidget(info_label)
+
+        def load_crops_folder(self):
+            """Cargar carpeta de crops"""
+            folder = QFileDialog.getExistingDirectory(
+                self,
+                "Seleccionar carpeta de crops (crops_od)",
+                "",
+                QFileDialog.ShowDirsOnly
+            )
+
+            if not folder:
+                return
+
+            folder_path = Path(folder)
+
+            # Verificar que sea una carpeta de crops valida
+            # Debe tener subcarpetas con clases (car, bus, truck, etc.)
+            subdirs = [d for d in folder_path.iterdir() if d.is_dir()]
+
+            if not subdirs:
+                QMessageBox.warning(
+                    self,
+                    "Carpeta invalida",
+                    "La carpeta seleccionada no contiene subcarpetas de clases.\n\n"
+                    "Seleccione una carpeta crops_od que contenga subcarpetas como:\n"
+                    "car/, bus/, truck/, person/, etc."
+                )
+                return
+
+            # Buscar archivo typologies.json
+            typologies_path = None
+            parent_dir = folder_path.parent
+            possible_paths = [
+                parent_dir / "typologies.json",
+                folder_path / "typologies.json",
+                parent_dir / "config" / "typologies.json"
+            ]
+
+            for tp in possible_paths:
+                if tp.exists():
+                    typologies_path = str(tp)
+                    break
+
+            # Cargar CropManager
+            try:
+                self.crop_manager = CropManager.load_existing(
+                    str(folder_path),
+                    typologies_path
+                )
+                self.crops_dir = folder_path
+
+                # Contar imagenes
+                total_images = 0
+                class_counts = []
+                for subdir in subdirs:
+                    images = list(subdir.glob("*.jpg")) + list(subdir.glob("*.png"))
+                    count = len(images)
+                    if count > 0:
+                        class_counts.append(f"{subdir.name}: {count}")
+                        total_images += count
+
+                self.status_label.setText(
+                    f"Carpeta cargada: {folder_path.name}\n"
+                    f"Total de imagenes: {total_images}\n"
+                    f"Clases: {', '.join(class_counts[:5])}{'...' if len(class_counts) > 5 else ''}"
+                )
+                self.status_label.setStyleSheet("color: #28a745;")
+                self.classify_btn.setEnabled(True)
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Error al cargar la carpeta de crops:\n{str(e)}"
+                )
+
+        def open_classifier(self):
+            """Abrir dialogo de clasificacion"""
+            if not self.crop_manager:
+                QMessageBox.warning(self, "Error", "Primero cargue una carpeta de crops")
+                return
+
+            # Cargar tipologias
+            typologies = load_typologies()
+
+            dialog = ClassificationGalleryDialog(
+                self.crop_manager,
+                default_typologies=typologies,
+                additional_typologies=[],
+                parent=self
+            )
+            dialog.exec_()
+
+    # Iniciar aplicacion
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+
+    window = LiteMainWindow()
+    window.show()
+
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

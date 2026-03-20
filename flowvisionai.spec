@@ -27,14 +27,14 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    [os.path.join(BASE_PATH, 'src', 'main_v3.py')],
+    [os.path.join(BASE_PATH, 'src', 'main_lite.py')],
     pathex=[
         os.path.join(BASE_PATH, 'src'),
         BASE_PATH,
     ],
     binaries=[],
     datas=[
-        (os.path.join(BASE_PATH, 'src', 'ui', '*.ui'), 'ui'),
+        # Lite version no requiere archivos .ui - UI se construye en codigo
         (os.path.join(BASE_PATH, 'templates'), 'templates'),
     ],
     hiddenimports=hidden_imports,
