@@ -22,32 +22,35 @@ class SimpleClassificationDialog(QDialog):
         self.current_images = []
         self.changes_made = 0
 
-        # Clases válidas: nombre carpeta -> nombre mostrado
-        # Usar siempre estas clases, sin detectar carpetas
+        # Clases: nombre carpeta -> nombre mostrado en español
         self.class_labels = {
-            'auto': 'Auto',
-            'bicicleta': 'Bicicleta',
+            # Clases YOLO (inglés)
+            'person': 'Persona',
+            'bicycle': 'Bicicleta',
+            'car': 'Auto',
+            'motorcycle': 'Moto',
             'bus': 'Bus',
-            'camion': 'Camion',
+            'truck': 'Camion',
+            # Clases adicionales (español)
             'camioneta': 'Camioneta',
             'combi': 'Combi',
             'microbus': 'Microbus',
-            'moto': 'Moto',
             'mototaxi': 'Mototaxi',
             'omnibus': 'Omnibus',
-            'persona': 'Persona',
             'remolque': 'Remolque',
             'taxi': 'Taxi',
             'trailer': 'Trailer',
-            'otros': 'Otros',
+            'van': 'Van',
+            'minivan': 'Minivan',
+            'otros': 'Otros'
         }
 
         self.available_classes = list(self.class_labels.keys())
-        self.selected_class = 'car'
+        self.selected_class = None  # Sin clase seleccionada al inicio
 
         self.setWindowTitle("Clasificación Manual Rápida")
         self.setMinimumSize(800, 600)
-        
+
         self.init_ui()
         self.load_class_images()
     
@@ -62,14 +65,14 @@ class SimpleClassificationDialog(QDialog):
         controls_layout.addWidget(QLabel("Clase:"))
 
         self.class_combo = QComboBox()
+        # Agregar placeholder - sin clase seleccionada al inicio
+        self.class_combo.addItem("-- Seleccionar clase --", None)
         for class_name, display_name in self.class_labels.items():
             self.class_combo.addItem(display_name, class_name)
 
-        # Establecer "Auto" como selección por defecto
-        default_index = self.class_combo.findData('auto')
-        if default_index >= 0:
-            self.class_combo.setCurrentIndex(default_index)
-        
+        # No seleccionar ninguna clase por defecto (queda en el placeholder)
+        self.class_combo.setCurrentIndex(0)
+
         self.class_combo.currentTextChanged.connect(self.on_class_changed)
         controls_layout.addWidget(self.class_combo)
         
@@ -155,9 +158,8 @@ class SimpleClassificationDialog(QDialog):
     def on_class_changed(self):
         """Cambio de clase seleccionada"""
         selected_data = self.class_combo.currentData()
-        if selected_data:
-            self.selected_class = selected_data
-            self.load_class_images()
+        self.selected_class = selected_data  # Puede ser None si es el placeholder
+        self.load_class_images()
     
     def load_class_images(self):
         """Cargar imágenes de la clase seleccionada"""
@@ -168,13 +170,17 @@ class SimpleClassificationDialog(QDialog):
             self.current_images.clear()
 
             selected_class = self.selected_class
+
+            # Si no hay clase seleccionada, no mostrar nada
             if not selected_class:
+                self.setWindowTitle("Clasificación Manual - Seleccione una clase")
+                self.on_selection_changed()
                 return
 
             # Extensiones de imagen soportadas
             image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp']
 
-            # Buscar imágenes en las carpetas
+            # Buscar imágenes en las carpetas (clases en inglés)
             image_paths = []
 
             if self.all_crops_cb.isChecked():

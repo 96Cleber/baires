@@ -1,7 +1,7 @@
-﻿__pycache__/
+__pycache__/
 .env
 .claude
-*.pyc 
+*.pyc
 flowvisionai/
 .DS_Store
 resources/
@@ -27,3 +27,11 @@ dist/
 main_v3.build/
 main_v3.dist/
 main_v3.onefile-build/
+
+# Datos de prueba y crops
+*_crops_od/
+*_crops_all/
+hiv*/
+pruebando/
+*.log
+hooks/

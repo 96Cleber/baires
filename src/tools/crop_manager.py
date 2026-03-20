@@ -105,7 +105,8 @@ class CropManager:
         if typologies_path is None:
             typologies_path = get_resource_path("templates/tipologias.txt")
 
-        crops_path = Path(crops_od_dir)
+        # Asegurarse de usar rutas absolutas para evitar problemas
+        crops_path = Path(crops_od_dir).resolve()
         parent_dir = crops_path.parent
         folder_name = crops_path.name
 
@@ -199,13 +200,15 @@ class CropManager:
     
     def _create_class_directories(self):
         """Crear directorios para cada clase de vehículo"""
-        # Clases para las carpetas de crops
+        # Clases YOLO (inglés) + clases adicionales para reclasificación (español)
         classes = [
-            'auto', 'bicicleta', 'bus', 'camion', 'camioneta', 'combi',
-            'microbus', 'moto', 'mototaxi', 'omnibus', 'persona',
-            'remolque', 'taxi', 'trailer', 'otros'
+            # Clases YOLO (inglés)
+            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            # Clases adicionales para reclasificación manual (español)
+            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
+            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
         ]
-        
+
         for crop_dir in [self.all_crops_dir, self.od_crops_dir]:
             for class_name in classes:
                 class_dir = crop_dir / class_name
@@ -286,17 +289,18 @@ class CropManager:
             class_name = detection['class_name']
             confidence = detection['confidence']
             bbox = detection['bbox']  # [x1, y1, x2, y2]
-            
+
             # Crear crop
             x1, y1, x2, y2 = [int(coord) for coord in bbox]
             crop = frame[y1:y2, x1:x2]
-            
+
             # Nombre del archivo
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             filename = f"all_{frame_number:06d}_{object_id}_{class_name}_{timestamp}.jpg"
-            
+
             # Ruta completa
             class_dir = self.all_crops_dir / class_name
+            class_dir.mkdir(exist_ok=True)
             filepath = class_dir / filename
 
             # OPT-2: Guardar imagen asíncronamente si está disponible
@@ -339,17 +343,18 @@ class CropManager:
             origin_line = crossing_data['origin_line']
             destination_line = crossing_data['destination_line']
             turn_name = crossing_data['turn_name']
-            
+
             # Crear crop
             x1, y1, x2, y2 = [int(coord) for coord in bbox]
             crop = frame[y1:y2, x1:x2]
-            
+
             # Nombre del archivo
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             filename = f"od_{origin_frame:06d}_{destination_frame:06d}_{object_id}_{class_name}_{turn_name}_{timestamp}.jpg"
-            
+
             # Ruta completa
             class_dir = self.od_crops_dir / class_name
+            class_dir.mkdir(exist_ok=True)
             filepath = class_dir / filename
 
             # OPT-2: Guardar imagen asíncronamente si está disponible

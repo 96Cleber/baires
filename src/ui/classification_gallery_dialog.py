@@ -137,8 +137,13 @@ class ClassGroupWidget(QWidget):
         self.crop_manager = crop_manager
         self.thumbnail_widgets = {}
         self.selected_thumbnail = None
-        self.available_classes = ['person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck']
-        
+        # Clases YOLO (inglés) + clases adicionales (español)
+        self.available_classes = [
+            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
+            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
+        ]
+
         self.init_ui()
     
     def init_ui(self):
@@ -160,16 +165,27 @@ class ClassGroupWidget(QWidget):
         
         header_layout = QHBoxLayout()
         
-        # Mapeo de clases a etiquetas en español
+        # Mapeo de clases a español (para UI)
         class_labels = {
             'person': 'Persona',
-            'bicycle': 'Bicicleta', 
+            'bicycle': 'Bicicleta',
             'car': 'Auto',
             'motorcycle': 'Moto',
             'bus': 'Bus',
-            'truck': 'Camion'
+            'truck': 'Camion',
+            'camioneta': 'Camioneta',
+            'combi': 'Combi',
+            'microbus': 'Microbus',
+            'mototaxi': 'Mototaxi',
+            'omnibus': 'Omnibus',
+            'remolque': 'Remolque',
+            'taxi': 'Taxi',
+            'trailer': 'Trailer',
+            'van': 'Van',
+            'minivan': 'Minivan',
+            'otros': 'Otros'
         }
-        
+
         if self.class_name:
             display_name = class_labels.get(self.class_name, self.class_name.title())
         else:
@@ -276,16 +292,27 @@ class ClassGroupWidget(QWidget):
         
         menu = QMenu(self)
         
-        # Mapeo de clases a etiquetas en español
+        # Mapeo de clases a español (para UI)
         class_labels = {
             'person': 'Persona',
-            'bicycle': 'Bicicleta', 
-            'car': 'Carro',
+            'bicycle': 'Bicicleta',
+            'car': 'Auto',
             'motorcycle': 'Moto',
             'bus': 'Bus',
-            'truck': 'Camión'
+            'truck': 'Camion',
+            'camioneta': 'Camioneta',
+            'combi': 'Combi',
+            'microbus': 'Microbus',
+            'mototaxi': 'Mototaxi',
+            'omnibus': 'Omnibus',
+            'remolque': 'Remolque',
+            'taxi': 'Taxi',
+            'trailer': 'Trailer',
+            'van': 'Van',
+            'minivan': 'Minivan',
+            'otros': 'Otros'
         }
-        
+
         # Agregar acciones para cada clase
         for class_name in self.available_classes:
             display_name = class_labels.get(class_name, class_name.title())
@@ -325,16 +352,27 @@ class ClassGroupWidget(QWidget):
         if selected_text == "Reclasificar todas como...":
             return
         
-        # Mapeo inverso para obtener el nombre de clase
+        # Mapeo inverso: español display -> nombre carpeta
         class_labels = {
             'Persona': 'person',
-            'Bicicleta': 'bicycle', 
+            'Bicicleta': 'bicycle',
             'Auto': 'car',
             'Moto': 'motorcycle',
             'Bus': 'bus',
-            'Camion': 'truck'
+            'Camion': 'truck',
+            'Camioneta': 'camioneta',
+            'Combi': 'combi',
+            'Microbus': 'microbus',
+            'Mototaxi': 'mototaxi',
+            'Omnibus': 'omnibus',
+            'Remolque': 'remolque',
+            'Taxi': 'taxi',
+            'Trailer': 'trailer',
+            'Van': 'van',
+            'Minivan': 'minivan',
+            'Otros': 'otros'
         }
-        
+
         new_class = class_labels.get(selected_text)
         if not new_class:
             return
@@ -374,8 +412,15 @@ class ClassificationGalleryDialog(QDialog):
         self.crop_manager = crop_manager
         self.current_crops = []
         self.classifications_changed = []
-        self.available_classes = ['person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck']
-        self.selected_class = 'car'  # Clase por defecto
+        # Clases YOLO (inglés) + clases adicionales para reclasificación (español)
+        self.available_classes = [
+            # Clases YOLO (inglés)
+            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            # Clases adicionales (español)
+            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
+            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
+        ]
+        self.selected_class = None  # Sin clase seleccionada al inicio
         self.thumbnail_widgets = {}
         self.selected_thumbnail = None
 
@@ -400,32 +445,39 @@ class ClassificationGalleryDialog(QDialog):
         class_group = QGroupBox("Seleccionar Clase")
         class_layout = QHBoxLayout()
         
-        # Mapeo de clases a etiquetas en español
+        # Mapeo de clases a etiquetas en español (para la UI)
         self.class_labels = {
+            # Clases YOLO (inglés → español)
             'person': 'Persona',
-            'bicycle': 'Bicicleta', 
+            'bicycle': 'Bicicleta',
             'car': 'Auto',
             'motorcycle': 'Moto',
             'bus': 'Bus',
-            'truck': 'Camion'
+            'truck': 'Camion',
+            # Clases adicionales (español → español)
+            'camioneta': 'Camioneta',
+            'combi': 'Combi',
+            'microbus': 'Microbus',
+            'mototaxi': 'Mototaxi',
+            'omnibus': 'Omnibus',
+            'remolque': 'Remolque',
+            'taxi': 'Taxi',
+            'trailer': 'Trailer',
+            'van': 'Van',
+            'minivan': 'Minivan',
+            'otros': 'Otros'
         }
 
-        # Chequeo de clases por defecto
-        default_spa_labels = [typo for typo in self.class_labels.values()]
-        if not sorted(default_spa_labels) == sorted(self.default_typologies):
-            error_message = QErrorMessage()
-            error_message.showMessage("La tipología por defecto ha sido alterada. Descargue nuevamente el archivo tipologias.txt.")
-
         self.class_combo = QComboBox()
+        # Agregar placeholder - sin clase seleccionada al inicio
+        self.class_combo.addItem("-- Seleccionar clase --", None)
         for class_name in self.available_classes:
             display_name = self.class_labels.get(class_name, class_name.title())
             self.class_combo.addItem(display_name, class_name)
-        
-        # Establecer "Carros" como selección por defecto
-        default_index = self.class_combo.findData('car')
-        if default_index >= 0:
-            self.class_combo.setCurrentIndex(default_index)
-        
+
+        # No seleccionar ninguna clase por defecto (queda en el placeholder)
+        self.class_combo.setCurrentIndex(0)
+
         self.class_combo.currentTextChanged.connect(self.on_class_changed)
         
         class_layout.addWidget(QLabel("Clase:"))
@@ -532,9 +584,8 @@ class ClassificationGalleryDialog(QDialog):
     def on_class_changed(self):
         """Manejar cambio de clase seleccionada"""
         selected_data = self.class_combo.currentData()
-        if selected_data:
-            self.selected_class = selected_data
-            self.load_class_thumbnails()
+        self.selected_class = selected_data  # Puede ser None si es el placeholder
+        self.load_class_thumbnails()
     
     def load_class_thumbnails(self):
         """Cargar miniaturas de la clase seleccionada desde las carpetas"""
@@ -551,15 +602,19 @@ class ClassificationGalleryDialog(QDialog):
 
             self.thumbnail_widgets.clear()
             self.current_crops = []
-            
+
             # Obtener la clase actual seleccionada
             selected_class = self.selected_class
+
+            # Si no hay clase seleccionada, no mostrar nada
             if not selected_class:
-                selected_class = 'car'
-            
-            # Buscar imágenes en las carpetas de la clase
+                self.summary_label.setText("Seleccione una clase para ver las imágenes")
+                self.update_selection_ui()
+                return
+
+            # Buscar imágenes en las carpetas de la clase (en inglés)
             thumbnail_data = []
-            
+
             if self.all_crops_cb.isChecked():
                 all_class_dir = self.crop_manager.all_crops_dir / selected_class
                 if all_class_dir.exists():
@@ -570,7 +625,7 @@ class ClassificationGalleryDialog(QDialog):
                             'type': 'all',
                             'class': selected_class
                         })
-            
+
             if self.od_crops_cb.isChecked():
                 od_class_dir = self.crop_manager.od_crops_dir / selected_class
                 if od_class_dir.exists():
@@ -581,19 +636,19 @@ class ClassificationGalleryDialog(QDialog):
                             'type': 'od',
                             'class': selected_class
                         })
-            
+
             # Crear miniaturas
             cols = 8  # Número de columnas
             for i, thumb_data in enumerate(thumbnail_data):
                 thumbnail = ThumbnailLabel(thumb_data, thumb_data['path'])
                 thumbnail.clicked.connect(self.on_thumbnail_clicked)
-                
+
                 row = i // cols
                 col = i % cols
                 self.thumbnails_layout.addWidget(thumbnail, row, col)
-                
+
                 self.thumbnail_widgets[thumb_data['filename']] = thumbnail
-            
+
             # Actualizar resumen
             class_display = self.class_labels.get(selected_class, selected_class.title())
             total_images = len(thumbnail_data)
@@ -759,29 +814,36 @@ class ClassificationGalleryDialog(QDialog):
         if new_class and new_class != thumb_data['class']:
             self.reclassify_single(thumb_data, new_class)
     
-    def reclassify_single(self, thumb_data: dict, new_class: str):
-        """Reclasificar una sola imagen"""
+    def reclassify_single(self, thumb_data: dict, new_class: str, reload_view: bool = True):
+        """Reclasificar una sola imagen
+
+        Args:
+            thumb_data: Datos del thumbnail
+            new_class: Nueva clase de clasificación
+            reload_view: Si True, recarga la galería después de reclasificar.
+                         Usar False cuando se reclasifican múltiples imágenes en lote.
+        """
         if new_class == thumb_data['class']:
             return  # No hay cambio
-        
+
         try:
             # Mover archivo a la nueva carpeta de clase
             old_path = thumb_data['path']
-            
+
             if thumb_data['type'] == 'all':
                 new_dir = self.crop_manager.all_crops_dir / new_class
             else:
                 new_dir = self.crop_manager.od_crops_dir / new_class
-            
+
             new_dir.mkdir(exist_ok=True)
             new_path = new_dir / thumb_data['filename']
-            
+
             # Mover archivo
             old_path.rename(new_path)
-            
+
             # Actualizar datos en base de datos
             self.update_crop_classification_in_db(thumb_data['filename'], new_class, thumb_data['type'])
-            
+
             # Registrar cambio
             self.classifications_changed.append({
                 'filename': thumb_data['filename'],
@@ -789,13 +851,14 @@ class ClassificationGalleryDialog(QDialog):
                 'new_class': new_class,
                 'type': thumb_data['type']
             })
-            
+
             # Habilitar botón de guardar
             self.save_button.setEnabled(len(self.classifications_changed) > 0)
-            
-            # Recargar vista actual
-            self.load_class_thumbnails()
-            
+
+            # Recargar vista actual solo si se solicita
+            if reload_view:
+                self.load_class_thumbnails()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error reclasificando imagen: {e}")
     
@@ -804,33 +867,40 @@ class ClassificationGalleryDialog(QDialog):
         new_class_data = self.reclassify_combo.currentData()
         if not new_class_data:
             return
-        
+
+        # Verificar que hay clase seleccionada
+        if not self.selected_class:
+            QMessageBox.warning(self, "Advertencia", "No hay clase seleccionada.")
+            return
+
         current_images = len(self.thumbnail_widgets)
         if current_images == 0:
             return
-        
+
         # Confirmar acción
         current_class_name = self.class_labels.get(self.selected_class, self.selected_class.title())
         new_class_name = self.class_labels.get(new_class_data, new_class_data.title())
-        
+
         reply = QMessageBox.question(
-            self, 
+            self,
             'Confirmar Reclasificación Masiva',
             f'¿Reclasificar todas las {current_images} imágenes de {current_class_name} como {new_class_name}?',
             QMessageBox.Yes | QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
-            # Obtener todas las imágenes actuales
-            current_thumbnails = []
-            for filename, thumbnail in self.thumbnail_widgets.items():
-                thumb_data = thumbnail.crop_data
-                current_thumbnails.append(thumb_data)
-            
-            # Reclasificar cada una
+            # Recoger datos de todos los thumbnails antes de procesar
+            current_thumbnails = [
+                thumbnail.crop_data for thumbnail in self.thumbnail_widgets.values()
+            ]
+
+            # Reclasificar cada una SIN recargar la vista en cada iteración
             for thumb_data in current_thumbnails:
-                self.reclassify_single(thumb_data, new_class_data)
-        
+                self.reclassify_single(thumb_data, new_class_data, reload_view=False)
+
+            # Recargar la vista UNA SOLA VEZ al final
+            self.load_class_thumbnails()
+
         # Resetear combo
         self.reclassify_combo.setCurrentIndex(0)
 
@@ -857,13 +927,21 @@ class ClassificationGalleryDialog(QDialog):
         )
 
         if reply == QMessageBox.Yes:
-            # Reclasificar cada una
-            for thumbnail in self.selected_thumbnails:
-                thumb_data = thumbnail.crop_data
-                self.reclassify_single(thumb_data, new_class_data)
+            # Recoger datos de los thumbnails antes de procesar
+            # (evita problemas si la lista se modifica durante iteración)
+            thumbnails_to_process = [
+                thumbnail.crop_data for thumbnail in self.selected_thumbnails
+            ]
+
+            # Reclasificar cada una SIN recargar la vista en cada iteración
+            for thumb_data in thumbnails_to_process:
+                self.reclassify_single(thumb_data, new_class_data, reload_view=False)
 
             # Limpiar selección después de reclasificar
             self.clear_all_selections()
+
+            # Recargar la vista UNA SOLA VEZ al final
+            self.load_class_thumbnails()
 
         # Resetear combo
         self.reclassify_combo.setCurrentIndex(0)
