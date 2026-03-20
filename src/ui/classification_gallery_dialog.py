@@ -405,11 +405,21 @@ class ClassGroupWidget(QWidget):
 class ClassificationGalleryDialog(QDialog):
     """Diálogo de galería para clasificación manual rápida"""
     # TODO: Chequear como afecta acá las tipologías adicionales
-    def __init__(self, crop_manager, default_typologies, additional_typologies, parent=None):
+    def __init__(self, crop_manager=None, default_typologies=None, additional_typologies=None,
+                 parent=None, crop_folders=None):
+        """
+        Args:
+            crop_manager: CropManager individual (modo tradicional)
+            default_typologies: Lista de tipologías por defecto
+            additional_typologies: Lista de tipologías adicionales
+            parent: Widget padre
+            crop_folders: Lista de carpetas de crops (modo multi-carpeta)
+        """
         super().__init__(parent)
-        self.default_typologies = default_typologies
-        self.additional_typologies = additional_typologies
+        self.default_typologies = default_typologies or []
+        self.additional_typologies = additional_typologies or []
         self.crop_manager = crop_manager
+        self.crop_folders = crop_folders or []  # Lista de Path para modo multi-carpeta
         self.current_crops = []
         self.classifications_changed = []
         # Clases YOLO (inglés) + clases adicionales para reclasificación (español)
@@ -615,27 +625,51 @@ class ClassificationGalleryDialog(QDialog):
             # Buscar imágenes en las carpetas de la clase (en inglés)
             thumbnail_data = []
 
-            if self.all_crops_cb.isChecked():
-                all_class_dir = self.crop_manager.all_crops_dir / selected_class
-                if all_class_dir.exists():
-                    for img_file in all_class_dir.glob("*.jpg"):
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'all',
-                            'class': selected_class
-                        })
+            # Modo multi-carpeta (para main_lite.py)
+            if self.crop_folders:
+                for crop_folder in self.crop_folders:
+                    class_dir = crop_folder / selected_class
+                    if class_dir.exists():
+                        for img_file in class_dir.glob("*.jpg"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class,
+                                'source_folder': crop_folder  # Rastrear origen
+                            })
+                        for img_file in class_dir.glob("*.png"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class,
+                                'source_folder': crop_folder
+                            })
 
-            if self.od_crops_cb.isChecked():
-                od_class_dir = self.crop_manager.od_crops_dir / selected_class
-                if od_class_dir.exists():
-                    for img_file in od_class_dir.glob("*.jpg"):
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'od',
-                            'class': selected_class
-                        })
+            # Modo tradicional con crop_manager
+            elif self.crop_manager:
+                if self.all_crops_cb.isChecked():
+                    all_class_dir = self.crop_manager.all_crops_dir / selected_class
+                    if all_class_dir.exists():
+                        for img_file in all_class_dir.glob("*.jpg"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'all',
+                                'class': selected_class
+                            })
+
+                if self.od_crops_cb.isChecked():
+                    od_class_dir = self.crop_manager.od_crops_dir / selected_class
+                    if od_class_dir.exists():
+                        for img_file in od_class_dir.glob("*.jpg"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class
+                            })
 
             # Crear miniaturas
             cols = 8  # Número de columnas
@@ -830,10 +864,17 @@ class ClassificationGalleryDialog(QDialog):
             # Mover archivo a la nueva carpeta de clase
             old_path = thumb_data['path']
 
-            if thumb_data['type'] == 'all':
-                new_dir = self.crop_manager.all_crops_dir / new_class
+            # Modo multi-carpeta: usar source_folder del thumbnail
+            if 'source_folder' in thumb_data:
+                new_dir = thumb_data['source_folder'] / new_class
+            # Modo tradicional: usar crop_manager
+            elif self.crop_manager:
+                if thumb_data['type'] == 'all':
+                    new_dir = self.crop_manager.all_crops_dir / new_class
+                else:
+                    new_dir = self.crop_manager.od_crops_dir / new_class
             else:
-                new_dir = self.crop_manager.od_crops_dir / new_class
+                raise ValueError("No se puede determinar la carpeta destino")
 
             new_dir.mkdir(exist_ok=True)
             new_path = new_dir / thumb_data['filename']
@@ -841,8 +882,9 @@ class ClassificationGalleryDialog(QDialog):
             # Mover archivo
             old_path.rename(new_path)
 
-            # Actualizar datos en base de datos
-            self.update_crop_classification_in_db(thumb_data['filename'], new_class, thumb_data['type'])
+            # Actualizar datos en base de datos (solo si hay crop_manager)
+            if self.crop_manager:
+                self.update_crop_classification_in_db(thumb_data['filename'], new_class, thumb_data['type'])
 
             # Registrar cambio
             self.classifications_changed.append({

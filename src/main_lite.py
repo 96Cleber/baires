@@ -16,7 +16,6 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), relative_path)
 
 
-# Ruta al archivo de tipologias
 TYPOLOGIES_PATH = get_resource_path("templates/tipologias.txt")
 
 
@@ -30,10 +29,9 @@ def load_typologies() -> list:
                     clean = line.strip()
                     if clean and not clean.startswith("#"):
                         typologies.append(clean)
-    except Exception as e:
-        print(f"Error cargando tipologias: {e}")
+    except Exception:
+        pass
 
-    # Tipologias por defecto si no se pudo cargar el archivo
     if not typologies:
         typologies = [
             "Auto", "Bicicleta", "Bus", "Camion", "Camioneta",
@@ -43,6 +41,29 @@ def load_typologies() -> list:
     return typologies
 
 
+def find_crop_folders_recursive(parent_folder: str, pattern_start: str = "hiv",
+                                 pattern_end: str = "_crops_od") -> list:
+    """Buscar recursivamente carpetas que coincidan con el patron."""
+    found = []
+    parent_path = Path(parent_folder).resolve()
+
+    def search(folder: Path):
+        try:
+            for item in folder.iterdir():
+                if item.is_dir():
+                    name = item.name.lower()
+                    if name.startswith(pattern_start.lower()) and name.endswith(pattern_end.lower()):
+                        found.append(item)
+                    else:
+                        search(item)
+        except PermissionError:
+            pass
+
+    search(parent_path)
+    found.sort(key=lambda x: x.name)
+    return found
+
+
 def main():
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog,
                                   QVBoxLayout, QHBoxLayout, QPushButton,
@@ -50,7 +71,6 @@ def main():
     from PyQt5.QtGui import QFont
     from PyQt5.QtCore import Qt
 
-    from tools.crop_manager import CropManager
     from ui.classification_gallery_dialog import ClassificationGalleryDialog
 
     class LiteMainWindow(QMainWindow):
@@ -58,8 +78,7 @@ def main():
 
         def __init__(self):
             super().__init__()
-            self.crop_manager = None
-            self.crops_dir = None
+            self.crop_folders = []
             self.init_ui()
 
         def init_ui(self):
@@ -96,9 +115,10 @@ def main():
             layout.addSpacing(20)
 
             # Estado actual
-            self.status_label = QLabel("No hay carpeta de crops cargada")
+            self.status_label = QLabel("No hay carpetas cargadas")
             self.status_label.setAlignment(Qt.AlignCenter)
             self.status_label.setStyleSheet("color: #888; font-style: italic;")
+            self.status_label.setWordWrap(True)
             layout.addWidget(self.status_label)
 
             layout.addSpacing(20)
@@ -107,8 +127,8 @@ def main():
             btn_layout = QHBoxLayout()
             btn_layout.addStretch()
 
-            self.load_btn = QPushButton("Cargar Carpeta de Crops")
-            self.load_btn.setMinimumSize(200, 50)
+            self.load_btn = QPushButton("Cargar Carpetas (hiv*_crops_od)")
+            self.load_btn.setMinimumSize(280, 50)
             self.load_btn.setFont(QFont("Arial", 11))
             self.load_btn.setStyleSheet("""
                 QPushButton {
@@ -125,7 +145,7 @@ def main():
                     background-color: #005a9e;
                 }
             """)
-            self.load_btn.clicked.connect(self.load_crops_folder)
+            self.load_btn.clicked.connect(self.load_crop_folders)
             btn_layout.addWidget(self.load_btn)
 
             self.classify_btn = QPushButton("Abrir Clasificador")
@@ -165,11 +185,11 @@ def main():
             info_label.setStyleSheet("color: #aaa; font-size: 10px;")
             layout.addWidget(info_label)
 
-        def load_crops_folder(self):
-            """Cargar carpeta de crops"""
+        def load_crop_folders(self):
+            """Cargar carpetas de crops buscando recursivamente"""
             folder = QFileDialog.getExistingDirectory(
                 self,
-                "Seleccionar carpeta de crops (crops_od)",
+                "Seleccionar carpeta padre (busca hiv*_crops_od recursivamente)",
                 "",
                 QFileDialog.ShowDirsOnly
             )
@@ -177,80 +197,45 @@ def main():
             if not folder:
                 return
 
-            folder_path = Path(folder)
+            # Buscar carpetas recursivamente
+            self.crop_folders = find_crop_folders_recursive(folder)
 
-            # Verificar que sea una carpeta de crops valida
-            # Debe tener subcarpetas con clases (car, bus, truck, etc.)
-            subdirs = [d for d in folder_path.iterdir() if d.is_dir()]
-
-            if not subdirs:
+            if not self.crop_folders:
                 QMessageBox.warning(
                     self,
-                    "Carpeta invalida",
-                    "La carpeta seleccionada no contiene subcarpetas de clases.\n\n"
-                    "Seleccione una carpeta crops_od que contenga subcarpetas como:\n"
-                    "car/, bus/, truck/, person/, etc."
+                    "Sin resultados",
+                    "No se encontraron carpetas hiv*_crops_od.\n\n"
+                    "Verifique que existan carpetas con ese patron."
                 )
                 return
 
-            # Buscar archivo typologies.json
-            typologies_path = None
-            parent_dir = folder_path.parent
-            possible_paths = [
-                parent_dir / "typologies.json",
-                folder_path / "typologies.json",
-                parent_dir / "config" / "typologies.json"
-            ]
+            # Contar imagenes totales
+            total_images = 0
+            for crop_folder in self.crop_folders:
+                for subdir in crop_folder.iterdir():
+                    if subdir.is_dir():
+                        total_images += len(list(subdir.glob("*.jpg")))
+                        total_images += len(list(subdir.glob("*.png")))
 
-            for tp in possible_paths:
-                if tp.exists():
-                    typologies_path = str(tp)
-                    break
-
-            # Cargar CropManager
-            try:
-                self.crop_manager = CropManager.load_existing(
-                    str(folder_path),
-                    typologies_path
-                )
-                self.crops_dir = folder_path
-
-                # Contar imagenes
-                total_images = 0
-                class_counts = []
-                for subdir in subdirs:
-                    images = list(subdir.glob("*.jpg")) + list(subdir.glob("*.png"))
-                    count = len(images)
-                    if count > 0:
-                        class_counts.append(f"{subdir.name}: {count}")
-                        total_images += count
-
-                self.status_label.setText(
-                    f"Carpeta cargada: {folder_path.name}\n"
-                    f"Total de imagenes: {total_images}\n"
-                    f"Clases: {', '.join(class_counts[:5])}{'...' if len(class_counts) > 5 else ''}"
-                )
-                self.status_label.setStyleSheet("color: #28a745;")
-                self.classify_btn.setEnabled(True)
-
-            except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Error al cargar la carpeta de crops:\n{str(e)}"
-                )
+            folder_names = [f.name for f in self.crop_folders[:5]]
+            self.status_label.setText(
+                f"Carpetas encontradas: {len(self.crop_folders)}\n"
+                f"({', '.join(folder_names)}{'...' if len(self.crop_folders) > 5 else ''})\n"
+                f"Total de imagenes: {total_images}"
+            )
+            self.status_label.setStyleSheet("color: #28a745; font-weight: bold;")
+            self.classify_btn.setEnabled(True)
 
         def open_classifier(self):
             """Abrir dialogo de clasificacion"""
-            if not self.crop_manager:
-                QMessageBox.warning(self, "Error", "Primero cargue una carpeta de crops")
+            if not self.crop_folders:
+                QMessageBox.warning(self, "Error", "Primero cargue carpetas de crops")
                 return
 
-            # Cargar tipologias
             typologies = load_typologies()
 
             dialog = ClassificationGalleryDialog(
-                self.crop_manager,
+                crop_folders=self.crop_folders,
                 default_typologies=typologies,
                 additional_typologies=[],
                 parent=self
