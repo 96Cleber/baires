@@ -503,22 +503,35 @@ class ClassificationGalleryDialog(QDialog):
         # Filtros de tipo de crops
         type_group = QGroupBox("Tipo de Crops")
         type_layout = QHBoxLayout()
-        
+
         self.all_crops_cb = QCheckBox("Detecciones generales")
         self.all_crops_cb.setChecked(True)
         self.all_crops_cb.toggled.connect(self.load_class_thumbnails)
-        
+
         self.od_crops_cb = QCheckBox("Cruces O/D")
         self.od_crops_cb.setChecked(True)
         self.od_crops_cb.toggled.connect(self.load_class_thumbnails)
-        
+
         type_layout.addWidget(self.all_crops_cb)
         type_layout.addWidget(self.od_crops_cb)
         type_group.setLayout(type_layout)
+
+        # Filtro de validados
+        filter_group = QGroupBox("Filtro")
+        filter_layout = QHBoxLayout()
+
+        self.pending_only_cb = QCheckBox("Solo pendientes")
+        self.pending_only_cb.setChecked(True)
+        self.pending_only_cb.setToolTip("Ocultar imágenes ya validadas")
+        self.pending_only_cb.toggled.connect(self.load_class_thumbnails)
+        filter_layout.addWidget(self.pending_only_cb)
+
+        filter_group.setLayout(filter_layout)
         
         controls_layout.addWidget(class_group)
         controls_layout.addWidget(type_group)
-        
+        controls_layout.addWidget(filter_group)
+
         # Información de resumen
         self.summary_label = QLabel("Cargando...")
         controls_layout.addWidget(self.summary_label)
@@ -576,9 +589,34 @@ class ClassificationGalleryDialog(QDialog):
         
         reclassify_layout.addWidget(self.reclassify_combo)
         reclassify_layout.addWidget(self.reclassify_button)
+
+        # Separador visual
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet("color: #ccc;")
+        reclassify_layout.addWidget(separator)
+
+        # Botón de validar
+        self.validate_button = QPushButton("Validar Seleccionadas")
+        self.validate_button.setToolTip("Marcar las imágenes seleccionadas como correctamente clasificadas")
+        self.validate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                padding: 5px 15px;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover { background-color: #218838; }
+            QPushButton:disabled { background-color: #cccccc; }
+        """)
+        self.validate_button.clicked.connect(self.validate_selected_images)
+        self.validate_button.setEnabled(False)
+        reclassify_layout.addWidget(self.validate_button)
+
         reclassify_layout.addStretch()
         reclassify_group.setLayout(reclassify_layout)
-        
+
         layout.addWidget(reclassify_group)
         
         # Botones inferiores
@@ -633,25 +671,58 @@ class ClassificationGalleryDialog(QDialog):
 
             # Modo multi-carpeta (para main_lite.py)
             if self.crop_folders:
+                show_pending_only = self.pending_only_cb.isChecked()
+
                 for crop_folder in self.crop_folders:
                     class_dir = crop_folder / selected_class
                     if class_dir.exists():
+                        # Cargar imágenes pendientes (no validadas)
                         for img_file in class_dir.glob("*.jpg"):
+                            # Saltar si está en subcarpeta validados
+                            if img_file.parent.name == "validados":
+                                continue
                             thumbnail_data.append({
                                 'path': img_file,
                                 'filename': img_file.name,
                                 'type': 'od',
                                 'class': selected_class,
-                                'source_folder': crop_folder  # Rastrear origen
+                                'source_folder': crop_folder,
+                                'validated': False
                             })
                         for img_file in class_dir.glob("*.png"):
+                            if img_file.parent.name == "validados":
+                                continue
                             thumbnail_data.append({
                                 'path': img_file,
                                 'filename': img_file.name,
                                 'type': 'od',
                                 'class': selected_class,
-                                'source_folder': crop_folder
+                                'source_folder': crop_folder,
+                                'validated': False
                             })
+
+                        # Si no es solo pendientes, también cargar validados
+                        if not show_pending_only:
+                            validated_dir = class_dir / "validados"
+                            if validated_dir.exists():
+                                for img_file in validated_dir.glob("*.jpg"):
+                                    thumbnail_data.append({
+                                        'path': img_file,
+                                        'filename': img_file.name,
+                                        'type': 'od',
+                                        'class': selected_class,
+                                        'source_folder': crop_folder,
+                                        'validated': True
+                                    })
+                                for img_file in validated_dir.glob("*.png"):
+                                    thumbnail_data.append({
+                                        'path': img_file,
+                                        'filename': img_file.name,
+                                        'type': 'od',
+                                        'class': selected_class,
+                                        'source_folder': crop_folder,
+                                        'validated': True
+                                    })
 
             # Modo tradicional con crop_manager
             elif self.crop_manager:
@@ -834,18 +905,18 @@ class ClassificationGalleryDialog(QDialog):
         if count == 0:
             self.selection_info_label.setText("Ninguna imagen seleccionada")
             self.clear_selection_button.setEnabled(False)
-            # Deshabilitar botón de reclasificación
             self.reclassify_button.setEnabled(False)
+            self.validate_button.setEnabled(False)
         elif count == 1:
             self.selection_info_label.setText("1 imagen seleccionada")
             self.clear_selection_button.setEnabled(True)
-            # Habilitar si hay clase seleccionada
             self.reclassify_button.setEnabled(self.reclassify_combo.currentIndex() > 0)
+            self.validate_button.setEnabled(True)
         else:
             self.selection_info_label.setText(f"{count} imágenes seleccionadas")
             self.clear_selection_button.setEnabled(True)
-            # Habilitar si hay clase seleccionada
             self.reclassify_button.setEnabled(self.reclassify_combo.currentIndex() > 0)
+            self.validate_button.setEnabled(True)
 
     def apply_reclassification(self, dialog, thumb_data: dict, new_class: str):
         """Aplicar la reclasificación seleccionada"""
@@ -993,6 +1064,90 @@ class ClassificationGalleryDialog(QDialog):
 
         # Resetear combo
         self.reclassify_combo.setCurrentIndex(0)
+
+    def validate_selected_images(self):
+        """Validar las imágenes seleccionadas (moverlas a subcarpeta validados/)"""
+        if not self.selected_thumbnails:
+            QMessageBox.warning(
+                self, "Advertencia",
+                "No hay imágenes seleccionadas.\n\n"
+                "Use Ctrl+Click para seleccionar múltiples imágenes."
+            )
+            return
+
+        count = len(self.selected_thumbnails)
+
+        reply = QMessageBox.question(
+            self,
+            'Confirmar Validación',
+            f'¿Marcar {count} imagen(es) como validadas?\n\n'
+            'Las imágenes validadas no aparecerán cuando "Solo pendientes" esté activado.',
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Recoger datos antes de procesar
+        thumbnails_to_validate = [
+            thumbnail.crop_data for thumbnail in self.selected_thumbnails
+        ]
+
+        validated_count = 0
+        for thumb_data in thumbnails_to_validate:
+            if self.validate_single(thumb_data):
+                validated_count += 1
+
+        # Limpiar selección
+        self.clear_all_selections()
+
+        # Recargar vista
+        self.load_class_thumbnails()
+
+        if validated_count > 0:
+            QMessageBox.information(
+                self, "Validación Completada",
+                f"Se validaron {validated_count} imagen(es)."
+            )
+
+    def validate_single(self, thumb_data: dict) -> bool:
+        """
+        Validar una sola imagen moviéndola a la subcarpeta validados/.
+
+        Args:
+            thumb_data: Datos del thumbnail incluyendo path y source_folder
+
+        Returns:
+            True si se validó correctamente
+        """
+        try:
+            old_path = Path(thumb_data['path'])
+
+            # Determinar carpeta de validados
+            if 'source_folder' in thumb_data:
+                # Modo multi-carpeta
+                validated_dir = thumb_data['source_folder'] / thumb_data['class'] / "validados"
+            elif self.crop_manager:
+                # Modo tradicional
+                if thumb_data['type'] == 'all':
+                    validated_dir = self.crop_manager.all_crops_dir / thumb_data['class'] / "validados"
+                else:
+                    validated_dir = self.crop_manager.od_crops_dir / thumb_data['class'] / "validados"
+            else:
+                return False
+
+            # Crear carpeta validados si no existe
+            validated_dir.mkdir(parents=True, exist_ok=True)
+
+            # Mover archivo
+            new_path = validated_dir / old_path.name
+            old_path.rename(new_path)
+
+            return True
+
+        except Exception as e:
+            print(f"Error validando imagen: {e}")
+            return False
 
     def update_crop_classification_in_db(self, filename: str, new_class: str, crop_type: str):
         """Actualizar clasificación en base de datos"""
