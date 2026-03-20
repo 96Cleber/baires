@@ -1,28 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-FlowVisionAI - PyInstaller Spec File
-Configuración ONEFILE - Todo en un solo ejecutable.
+FlowVisionAI LITE - PyInstaller Spec File
+Versión ligera: Solo clasificación de crops (sin YOLO/PyTorch)
 """
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all
 
 block_cipher = None
 
 # Ruta base del proyecto
 BASE_PATH = os.path.dirname(os.path.abspath(SPEC))
 
-# Recolectar datos de ultralytics (YOLO)
-ultralytics_datas = collect_data_files('ultralytics')
-
-# Recolectar TODO de torch
-torch_datas, torch_binaries, torch_hiddenimports = collect_all('torch')
-
-# Recolectar TODO de torchvision
-torchvision_datas, torchvision_binaries, torchvision_hiddenimports = collect_all('torchvision')
-
-# Submódulos ocultos
+# Submódulos ocultos - SOLO lo necesario para clasificación
 hidden_imports = [
     'PyQt5',
     'PyQt5.QtCore',
@@ -30,32 +20,11 @@ hidden_imports = [
     'PyQt5.QtWidgets',
     'cv2',
     'numpy',
-    'pandas',
-    'torch',
-    'torchvision',
-    'ultralytics',
-    'shapely',
-    'shapely.geometry',
     'sqlite3',
-    'reportlab',
-    'reportlab.lib',
-    'reportlab.platypus',
-    'matplotlib',
-    'matplotlib.pyplot',
-    'openpyxl',
-    'polars',
-    'scipy',
     'PIL',
     'PIL.Image',
+    'pathlib',
 ]
-
-# Agregar submódulos
-hidden_imports += collect_submodules('ultralytics')
-hidden_imports += torch_hiddenimports
-hidden_imports += torchvision_hiddenimports
-
-# Combinar binaries
-all_binaries = torch_binaries + torchvision_binaries
 
 a = Analysis(
     [os.path.join(BASE_PATH, 'src', 'main_v3.py')],
@@ -63,19 +32,32 @@ a = Analysis(
         os.path.join(BASE_PATH, 'src'),
         BASE_PATH,
     ],
-    binaries=all_binaries,
+    binaries=[],
     datas=[
         (os.path.join(BASE_PATH, 'src', 'ui', '*.ui'), 'ui'),
         (os.path.join(BASE_PATH, 'templates'), 'templates'),
-        (os.path.join(BASE_PATH, 'weights'), 'weights'),
-    ] + ultralytics_datas + torch_datas + torchvision_datas,
+    ],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Excluir dependencias pesadas
+        'torch',
+        'torchvision',
+        'ultralytics',
+        'tensorflow',
+        'keras',
+        'scipy',
+        'matplotlib',
+        'pandas',
+        'polars',
+        'reportlab',
+        'openpyxl',
         'tkinter',
-        'matplotlib.backends.backend_tkagg',
+        'IPython',
+        'jupyter',
+        'notebook',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -93,11 +75,11 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='FlowVisionAI',
+    name='FlowVisionAI-Lite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,

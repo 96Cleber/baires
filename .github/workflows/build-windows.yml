@@ -1,8 +1,8 @@
-name: Build Windows Executable
+name: Build Windows Executable (Lite)
 
 on:
   push:
-    branches: [main, v1-yolo-headless]
+    branches: [main]
     tags:
       - 'v*'
   pull_request:
@@ -23,54 +23,33 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install dependencies (Lite - sin PyTorch)
         run: |
           python -m pip install --upgrade pip
-          pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements_windows.txt
+          pip install -r requirements_lite.txt
           pip install pyinstaller==6.3.0
         shell: pwsh
 
       - name: Create required directories
         run: |
-          if (!(Test-Path "weights")) { New-Item -ItemType Directory -Path "weights" }
-          if (!(Test-Path "hooks")) { New-Item -ItemType Directory -Path "hooks" }
+          if (!(Test-Path "templates")) { New-Item -ItemType Directory -Path "templates" }
         shell: pwsh
 
-      - name: Build executable
+      - name: Build executable (Lite - ONEFILE)
         run: pyinstaller flowvisionai.spec --noconfirm
-        shell: pwsh
-
-      - name: Fix DLL issues post-build
-        run: |
-          $internalDir = "dist/FlowVisionAI/_internal"
-          $torchLibDir = "$internalDir/torch/lib"
-          if (Test-Path $torchLibDir) {
-            Get-ChildItem -Path $torchLibDir -Filter "*.dll" | ForEach-Object {
-              $dest = "$internalDir/$($_.Name)"
-              if (!(Test-Path $dest)) {
-                Copy-Item $_.FullName -Destination $dest
-              }
-            }
-          }
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FlowVisionAI-Windows
-          path: dist/FlowVisionAI/
+          name: FlowVisionAI-Lite-Windows
+          path: dist/FlowVisionAI-Lite.exe
           retention-days: 30
-
-      - name: Create Release ZIP
-        if: startsWith(github.ref, 'refs/tags/')
-        run: Compress-Archive -Path dist/FlowVisionAI/* -DestinationPath FlowVisionAI-Windows.zip
-        shell: pwsh
 
       - name: Upload Release Asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: FlowVisionAI-Windows.zip
+          files: dist/FlowVisionAI-Lite.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
