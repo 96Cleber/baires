@@ -20,7 +20,7 @@ class ThumbnailLabel(QLabel):
 
     clicked = pyqtSignal(str, dict, object)  # crop_filename, crop_data, QMouseEvent
     
-    def __init__(self, crop_data: dict, crop_path: Path, thumbnail_size=120):
+    def __init__(self, crop_data: dict, crop_path: Path, thumbnail_size=180):
         super().__init__()
         self.crop_data = crop_data
         self.crop_path = crop_path
@@ -439,8 +439,13 @@ class ClassificationGalleryDialog(QDialog):
         self.last_selected_index = -1  # Índice del último seleccionado (para Shift)
 
         self.setWindowTitle("Galería de Clasificación Manual")
-        self.setMinimumSize(1000, 700)
-        
+        self.setMinimumSize(800, 600)
+        self.resize(1200, 800)  # Tamaño inicial
+
+        # Permitir redimensionar libremente
+        from PyQt5.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         self.init_ui()
         self.load_class_thumbnails()
     
@@ -533,8 +538,9 @@ class ClassificationGalleryDialog(QDialog):
         
         self.thumbnails_widget.setLayout(self.thumbnails_layout)
         self.scroll_area.setWidget(self.thumbnails_widget)
-        
-        layout.addWidget(self.scroll_area)
+
+        # El scroll_area se expande para llenar el espacio disponible
+        layout.addWidget(self.scroll_area, stretch=1)
 
         # Información de selección múltiple
         selection_info_layout = QHBoxLayout()
@@ -672,7 +678,7 @@ class ClassificationGalleryDialog(QDialog):
                             })
 
             # Crear miniaturas
-            cols = 8  # Número de columnas
+            cols = 6  # Número de columnas (ajustado para thumbnails de 180px)
             for i, thumb_data in enumerate(thumbnail_data):
                 thumbnail = ThumbnailLabel(thumb_data, thumb_data['path'])
                 thumbnail.clicked.connect(self.on_thumbnail_clicked)
