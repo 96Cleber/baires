@@ -1,7 +1,9 @@
 # Las tipologías no deben tener tildes y empezar en mayúscula.
+# Evitar caracteres especiales: / \ | : * ? " < >
 
 Auto
 Bicicleta
+Bici-triciclo
 Bus
 Camion
 Camioneta
@@ -14,4 +16,5 @@ Persona
 Remolque
 Taxi
 Trailer
+Van-Minivan
 Otros

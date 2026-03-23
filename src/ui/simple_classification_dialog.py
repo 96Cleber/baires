@@ -2,50 +2,40 @@
 Diálogo simple para clasificación manual de crops con lista desplegable
 """
 
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QComboBox, QScrollArea, QWidget, 
-                            QMessageBox, QGroupBox, QCheckBox, 
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                            QPushButton, QComboBox, QScrollArea, QWidget,
+                            QMessageBox, QGroupBox, QCheckBox,
                             QGridLayout, QListWidget, QListWidgetItem, QErrorMessage)
 from PyQt5.QtGui import QPixmap, QFont, QIcon
 from PyQt5.QtCore import Qt, QSize
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict, Optional
+
+# Importar módulo de tipologías centralizado
+def _get_tools_path():
+    if hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(__file__))
+
+sys.path.insert(0, _get_tools_path())
+from tools.typologies import get_cached_folder_to_tipologia, get_cached_folder_classes
 
 
 class SimpleClassificationDialog(QDialog):
     """Diálogo simple para clasificación manual rápida"""
-    
+
     def __init__(self, crop_manager, default_typologies: list[str], additional_typologies: list[str], parent=None):
         super().__init__(parent)
         self.crop_manager = crop_manager
         self.current_images = []
         self.changes_made = 0
 
-        # Clases: nombre carpeta -> nombre mostrado en español
-        self.class_labels = {
-            # Clases YOLO (inglés)
-            'person': 'Persona',
-            'bicycle': 'Bicicleta',
-            'car': 'Auto',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camion',
-            # Clases adicionales (español)
-            'camioneta': 'Camioneta',
-            'combi': 'Combi',
-            'microbus': 'Microbus',
-            'mototaxi': 'Mototaxi',
-            'omnibus': 'Omnibus',
-            'remolque': 'Remolque',
-            'taxi': 'Taxi',
-            'trailer': 'Trailer',
-            'van': 'Van',
-            'minivan': 'Minivan',
-            'otros': 'Otros'
-        }
+        # Clases cargadas dinámicamente desde el módulo centralizado
+        self.class_labels = get_cached_folder_to_tipologia()
 
-        self.available_classes = list(self.class_labels.keys())
+        self.available_classes = get_cached_folder_classes()
         self.selected_class = None  # Sin clase seleccionada al inicio
 
         self.setWindowTitle("Clasificación Manual Rápida")

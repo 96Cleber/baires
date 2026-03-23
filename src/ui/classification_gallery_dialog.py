@@ -2,17 +2,31 @@
 Diálogo de galería para clasificación manual rápida de crops
 """
 
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QComboBox, QScrollArea, QWidget, 
-                            QMessageBox, QProgressBar, QGroupBox, QCheckBox, 
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                            QPushButton, QComboBox, QScrollArea, QWidget,
+                            QMessageBox, QProgressBar, QGroupBox, QCheckBox,
                             QGridLayout, QFrame, QSplitter, QTabWidget,
                             QInputDialog, QLineEdit, QToolTip, QErrorMessage)
 from PyQt5.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QRect, QSize, QTimer
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict, Optional
 from collections import defaultdict
+
+# Importar módulo de tipologías centralizado
+def _get_tools_path():
+    if hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(__file__))
+
+sys.path.insert(0, _get_tools_path())
+from tools.typologies import (
+    get_cached_folder_to_tipologia,
+    get_cached_tipologia_to_folder,
+    get_cached_folder_classes
+)
 
 
 class ThumbnailLabel(QLabel):
@@ -137,12 +151,8 @@ class ClassGroupWidget(QWidget):
         self.crop_manager = crop_manager
         self.thumbnail_widgets = {}
         self.selected_thumbnail = None
-        # Clases YOLO (inglés) + clases adicionales (español)
-        self.available_classes = [
-            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
-            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
-            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
-        ]
+        # Clases cargadas dinámicamente desde el módulo centralizado
+        self.available_classes = get_cached_folder_classes()
 
         self.init_ui()
     
@@ -165,26 +175,8 @@ class ClassGroupWidget(QWidget):
         
         header_layout = QHBoxLayout()
         
-        # Mapeo de clases a español (para UI)
-        class_labels = {
-            'person': 'Persona',
-            'bicycle': 'Bicicleta',
-            'car': 'Auto',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camion',
-            'camioneta': 'Camioneta',
-            'combi': 'Combi',
-            'microbus': 'Microbus',
-            'mototaxi': 'Mototaxi',
-            'omnibus': 'Omnibus',
-            'remolque': 'Remolque',
-            'taxi': 'Taxi',
-            'trailer': 'Trailer',
-            'van': 'Van',
-            'minivan': 'Minivan',
-            'otros': 'Otros'
-        }
+        # Mapeo de clases a español (cargado dinámicamente)
+        class_labels = get_cached_folder_to_tipologia()
 
         if self.class_name:
             display_name = class_labels.get(self.class_name, self.class_name.title())
@@ -289,29 +281,11 @@ class ClassGroupWidget(QWidget):
     def show_reclassify_menu(self, thumbnail: ThumbnailLabel, crop_data: dict):
         """Mostrar menú de reclasificación"""
         from PyQt5.QtWidgets import QMenu, QAction
-        
+
         menu = QMenu(self)
-        
-        # Mapeo de clases a español (para UI)
-        class_labels = {
-            'person': 'Persona',
-            'bicycle': 'Bicicleta',
-            'car': 'Auto',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camion',
-            'camioneta': 'Camioneta',
-            'combi': 'Combi',
-            'microbus': 'Microbus',
-            'mototaxi': 'Mototaxi',
-            'omnibus': 'Omnibus',
-            'remolque': 'Remolque',
-            'taxi': 'Taxi',
-            'trailer': 'Trailer',
-            'van': 'Van',
-            'minivan': 'Minivan',
-            'otros': 'Otros'
-        }
+
+        # Mapeo de clases a español (cargado dinámicamente)
+        class_labels = get_cached_folder_to_tipologia()
 
         # Agregar acciones para cada clase
         for class_name in self.available_classes:
@@ -351,27 +325,9 @@ class ClassGroupWidget(QWidget):
         """Reclasificar todas las imágenes del grupo"""
         if selected_text == "Reclasificar todas como...":
             return
-        
-        # Mapeo inverso: español display -> nombre carpeta
-        class_labels = {
-            'Persona': 'person',
-            'Bicicleta': 'bicycle',
-            'Auto': 'car',
-            'Moto': 'motorcycle',
-            'Bus': 'bus',
-            'Camion': 'truck',
-            'Camioneta': 'camioneta',
-            'Combi': 'combi',
-            'Microbus': 'microbus',
-            'Mototaxi': 'mototaxi',
-            'Omnibus': 'omnibus',
-            'Remolque': 'remolque',
-            'Taxi': 'taxi',
-            'Trailer': 'trailer',
-            'Van': 'van',
-            'Minivan': 'minivan',
-            'Otros': 'otros'
-        }
+
+        # Mapeo inverso: español display -> nombre carpeta (cargado dinámicamente)
+        class_labels = get_cached_tipologia_to_folder()
 
         new_class = class_labels.get(selected_text)
         if not new_class:
@@ -422,14 +378,8 @@ class ClassificationGalleryDialog(QDialog):
         self.crop_folders = crop_folders or []  # Lista de Path para modo multi-carpeta
         self.current_crops = []
         self.classifications_changed = []
-        # Clases YOLO (inglés) + clases adicionales para reclasificación (español)
-        self.available_classes = [
-            # Clases YOLO (inglés)
-            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
-            # Clases adicionales (español)
-            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
-            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
-        ]
+        # Clases cargadas dinámicamente desde el módulo centralizado
+        self.available_classes = get_cached_folder_classes()
         self.selected_class = None  # Sin clase seleccionada al inicio
         self.thumbnail_widgets = {}
         self.selected_thumbnail = None
@@ -460,28 +410,8 @@ class ClassificationGalleryDialog(QDialog):
         class_group = QGroupBox("Seleccionar Clase")
         class_layout = QHBoxLayout()
         
-        # Mapeo de clases a etiquetas en español (para la UI)
-        self.class_labels = {
-            # Clases YOLO (inglés → español)
-            'person': 'Persona',
-            'bicycle': 'Bicicleta',
-            'car': 'Auto',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camion',
-            # Clases adicionales (español → español)
-            'camioneta': 'Camioneta',
-            'combi': 'Combi',
-            'microbus': 'Microbus',
-            'mototaxi': 'Mototaxi',
-            'omnibus': 'Omnibus',
-            'remolque': 'Remolque',
-            'taxi': 'Taxi',
-            'trailer': 'Trailer',
-            'van': 'Van',
-            'minivan': 'Minivan',
-            'otros': 'Otros'
-        }
+        # Mapeo de clases a etiquetas en español (cargado dinámicamente)
+        self.class_labels = get_cached_folder_to_tipologia()
 
         self.class_combo = QComboBox()
         # Agregar placeholder - sin clase seleccionada al inicio
@@ -943,17 +873,18 @@ class ClassificationGalleryDialog(QDialog):
 
             # Modo multi-carpeta: usar source_folder del thumbnail
             if 'source_folder' in thumb_data:
-                new_dir = thumb_data['source_folder'] / new_class
+                # Al reclasificar, mover directamente a validados/ (ya fue verificada)
+                new_dir = thumb_data['source_folder'] / new_class / "validados"
             # Modo tradicional: usar crop_manager
             elif self.crop_manager:
                 if thumb_data['type'] == 'all':
-                    new_dir = self.crop_manager.all_crops_dir / new_class
+                    new_dir = self.crop_manager.all_crops_dir / new_class / "validados"
                 else:
-                    new_dir = self.crop_manager.od_crops_dir / new_class
+                    new_dir = self.crop_manager.od_crops_dir / new_class / "validados"
             else:
                 raise ValueError("No se puede determinar la carpeta destino")
 
-            new_dir.mkdir(exist_ok=True)
+            new_dir.mkdir(parents=True, exist_ok=True)
             new_path = new_dir / thumb_data['filename']
 
             # Mover archivo

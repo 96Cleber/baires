@@ -7,6 +7,7 @@ Punto de entrada ligero sin dependencias pesadas (YOLO, PyTorch)
 import sys
 import os
 from pathlib import Path
+from typing import Dict, List, Optional
 
 
 def get_resource_path(relative_path: str) -> str:
@@ -16,28 +17,16 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), relative_path)
 
 
-TYPOLOGIES_PATH = get_resource_path("templates/tipologias.txt")
+# Agregar path para importar módulo de tipologías
+sys.path.insert(0, os.path.dirname(__file__))
+from tools.typologies import get_typologies, get_default_typologies
 
 
 def load_typologies() -> list:
-    """Cargar tipologias desde archivo"""
-    typologies = []
-    try:
-        if os.path.exists(TYPOLOGIES_PATH):
-            with open(TYPOLOGIES_PATH, "r", encoding='utf-8') as f:
-                for line in f:
-                    clean = line.strip()
-                    if clean and not clean.startswith("#"):
-                        typologies.append(clean)
-    except Exception:
-        pass
-
+    """Cargar tipologias desde archivo usando el módulo centralizado"""
+    typologies = get_typologies()
     if not typologies:
-        typologies = [
-            "Auto", "Bicicleta", "Bus", "Camion", "Camioneta",
-            "Combi", "Microbus", "Moto", "Mototaxi", "Omnibus",
-            "Persona", "Remolque", "Taxi", "Trailer", "Otros"
-        ]
+        typologies = get_default_typologies()
     return typologies
 
 
@@ -60,14 +49,66 @@ def find_crop_folders_recursive(parent_folder: str, pattern_start: str = "hiv",
             pass
 
     search(parent_path)
-    found.sort(key=lambda x: x.name)
+    found.sort(key=lambda x: str(x))  # Ordenar por ruta completa
     return found
+
+
+def count_images_in_folder(folder: Path) -> int:
+    """Contar imágenes en una carpeta de crops"""
+    total = 0
+    try:
+        for subdir in folder.iterdir():
+            if subdir.is_dir():
+                total += len(list(subdir.glob("*.jpg")))
+                total += len(list(subdir.glob("*.png")))
+    except Exception:
+        pass
+    return total
+
+
+def build_folder_tree(folders: List[Path], root_folder: Path) -> Dict:
+    """
+    Construir estructura de árbol desde lista de carpetas.
+
+    Args:
+        folders: Lista de carpetas crops_od encontradas
+        root_folder: Carpeta raíz seleccionada por el usuario
+
+    Returns:
+        Diccionario con estructura de árbol
+    """
+    tree = {}
+
+    for folder in folders:
+        # Obtener ruta relativa desde la carpeta raíz
+        try:
+            rel_path = folder.relative_to(root_folder)
+        except ValueError:
+            rel_path = Path(folder.name)
+
+        parts = rel_path.parts
+        current = tree
+
+        # Construir ramas del árbol
+        for i, part in enumerate(parts):
+            if part not in current:
+                is_leaf = (i == len(parts) - 1)
+                current[part] = {
+                    '_is_leaf': is_leaf,
+                    '_path': folder if is_leaf else root_folder / Path(*parts[:i+1]),
+                    '_children': {}
+                }
+            current = current[part]['_children']
+
+    return tree
 
 
 def main():
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog,
                                   QVBoxLayout, QHBoxLayout, QPushButton,
-                                  QWidget, QLabel, QMessageBox, QFrame)
+                                  QWidget, QLabel, QMessageBox, QFrame,
+                                  QTreeWidget, QTreeWidgetItem, QHeaderView,
+                                  QCheckBox)
     from PyQt5.QtGui import QFont
     from PyQt5.QtCore import Qt
 
@@ -78,19 +119,21 @@ def main():
 
         def __init__(self):
             super().__init__()
-            self.crop_folders = []
+            self.crop_folders = []  # Todas las carpetas encontradas (hojas)
+            self.root_folder = None  # Carpeta raíz seleccionada
+            self.leaf_items = []  # Lista de QTreeWidgetItem que son hojas (crops_od)
             self.init_ui()
 
         def init_ui(self):
             """Inicializar interfaz"""
             self.setWindowTitle("FlowVisionAI Lite - Clasificacion de Crops")
-            self.setMinimumSize(600, 400)
+            self.setMinimumSize(750, 550)
 
             central = QWidget()
             self.setCentralWidget(central)
             layout = QVBoxLayout(central)
-            layout.setSpacing(20)
-            layout.setContentsMargins(40, 40, 40, 40)
+            layout.setSpacing(15)
+            layout.setContentsMargins(40, 30, 40, 30)
 
             # Titulo
             title = QLabel("FlowVisionAI Lite")
@@ -104,24 +147,56 @@ def main():
             subtitle.setStyleSheet("color: #666;")
             layout.addWidget(subtitle)
 
-            layout.addSpacing(20)
-
             # Separador
             line = QFrame()
             line.setFrameShape(QFrame.HLine)
             line.setStyleSheet("background-color: #ddd;")
             layout.addWidget(line)
 
-            layout.addSpacing(20)
+            # Checkbox "Seleccionar todas"
+            self.select_all_cb = QCheckBox("Seleccionar todas")
+            self.select_all_cb.setFont(QFont("Arial", 10, QFont.Bold))
+            self.select_all_cb.setChecked(True)
+            self.select_all_cb.toggled.connect(self.toggle_select_all)
+            self.select_all_cb.setVisible(False)
+            layout.addWidget(self.select_all_cb)
 
-            # Estado actual
+            # Árbol de carpetas
+            self.tree_widget = QTreeWidget()
+            self.tree_widget.setHeaderLabels(["Carpeta", "Imágenes"])
+            self.tree_widget.setMinimumHeight(250)
+            self.tree_widget.setMaximumHeight(350)
+            self.tree_widget.setStyleSheet("""
+                QTreeWidget {
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    background-color: #fafafa;
+                    font-size: 11px;
+                }
+                QTreeWidget::item {
+                    padding: 4px;
+                }
+                QTreeWidget::item:hover {
+                    background-color: #e8f4fc;
+                }
+            """)
+            self.tree_widget.setVisible(False)
+            self.tree_widget.itemChanged.connect(self.on_item_changed)
+
+            # Configurar columnas
+            header = self.tree_widget.header()
+            header.setStretchLastSection(False)
+            header.setSectionResizeMode(0, QHeaderView.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
+            layout.addWidget(self.tree_widget)
+
+            # Label de estado/resumen
             self.status_label = QLabel("No hay carpetas cargadas")
             self.status_label.setAlignment(Qt.AlignCenter)
             self.status_label.setStyleSheet("color: #888; font-style: italic;")
             self.status_label.setWordWrap(True)
             layout.addWidget(self.status_label)
-
-            layout.addSpacing(20)
 
             # Botones
             btn_layout = QHBoxLayout()
@@ -177,8 +252,6 @@ def main():
             btn_layout.addStretch()
             layout.addLayout(btn_layout)
 
-            layout.addStretch()
-
             # Info
             info_label = QLabel("Version Lite: Solo clasificacion de crops (sin procesamiento de video)")
             info_label.setAlignment(Qt.AlignCenter)
@@ -197,6 +270,8 @@ def main():
             if not folder:
                 return
 
+            self.root_folder = Path(folder).resolve()
+
             # Buscar carpetas recursivamente
             self.crop_folders = find_crop_folders_recursive(folder)
 
@@ -209,33 +284,159 @@ def main():
                 )
                 return
 
-            # Contar imagenes totales
-            total_images = 0
-            for crop_folder in self.crop_folders:
-                for subdir in crop_folder.iterdir():
-                    if subdir.is_dir():
-                        total_images += len(list(subdir.glob("*.jpg")))
-                        total_images += len(list(subdir.glob("*.png")))
+            # Limpiar árbol anterior
+            self.tree_widget.clear()
+            self.leaf_items.clear()
 
-            folder_names = [f.name for f in self.crop_folders[:5]]
-            self.status_label.setText(
-                f"Carpetas encontradas: {len(self.crop_folders)}\n"
-                f"({', '.join(folder_names)}{'...' if len(self.crop_folders) > 5 else ''})\n"
-                f"Total de imagenes: {total_images}"
-            )
-            self.status_label.setStyleSheet("color: #28a745; font-weight: bold;")
-            self.classify_btn.setEnabled(True)
+            # Construir árbol
+            tree_structure = build_folder_tree(self.crop_folders, self.root_folder)
+
+            # Bloquear señales mientras construimos el árbol
+            self.tree_widget.blockSignals(True)
+
+            # Crear items del árbol
+            self._populate_tree(tree_structure, self.tree_widget.invisibleRootItem())
+
+            # Expandir todo
+            self.tree_widget.expandAll()
+
+            self.tree_widget.blockSignals(False)
+
+            # Mostrar elementos
+            self.select_all_cb.setVisible(True)
+            self.select_all_cb.setChecked(True)
+            self.tree_widget.setVisible(True)
+
+            self.update_selection_summary()
+
+        def _populate_tree(self, tree_dict: Dict, parent_item):
+            """Poblar árbol recursivamente"""
+            for name, data in sorted(tree_dict.items()):
+                if name.startswith('_'):
+                    continue
+
+                item = QTreeWidgetItem(parent_item)
+                item.setText(0, name)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate)
+                item.setCheckState(0, Qt.Checked)
+
+                # Guardar datos en el item
+                item.setData(0, Qt.UserRole, data['_path'])
+                item.setData(0, Qt.UserRole + 1, data['_is_leaf'])
+
+                if data['_is_leaf']:
+                    # Es una carpeta crops_od (hoja)
+                    image_count = count_images_in_folder(data['_path'])
+                    item.setText(1, f"{image_count:,}")
+                    item.setData(0, Qt.UserRole + 2, image_count)
+                    self.leaf_items.append(item)
+                else:
+                    # Es una carpeta intermedia (rama)
+                    item.setFont(0, QFont("Arial", 10, QFont.Bold))
+
+                # Procesar hijos
+                if data['_children']:
+                    self._populate_tree(data['_children'], item)
+
+                    # Calcular total de imágenes para carpetas intermedias
+                    if not data['_is_leaf']:
+                        total = self._count_images_recursive(item)
+                        item.setText(1, f"({total:,})")
+
+        def _count_images_recursive(self, item: QTreeWidgetItem) -> int:
+            """Contar imágenes en todos los hijos recursivamente"""
+            total = 0
+            for i in range(item.childCount()):
+                child = item.child(i)
+                is_leaf = child.data(0, Qt.UserRole + 1)
+                if is_leaf:
+                    total += child.data(0, Qt.UserRole + 2) or 0
+                else:
+                    total += self._count_images_recursive(child)
+            return total
+
+        def on_item_changed(self, item: QTreeWidgetItem, column: int):
+            """Manejar cambio de estado de checkbox"""
+            if column == 0:
+                self.update_selection_summary()
+
+        def toggle_select_all(self, checked: bool):
+            """Seleccionar/deseleccionar todas las carpetas"""
+            self.tree_widget.blockSignals(True)
+
+            root = self.tree_widget.invisibleRootItem()
+            state = Qt.Checked if checked else Qt.Unchecked
+
+            for i in range(root.childCount()):
+                self._set_check_state_recursive(root.child(i), state)
+
+            self.tree_widget.blockSignals(False)
+            self.update_selection_summary()
+
+        def _set_check_state_recursive(self, item: QTreeWidgetItem, state: Qt.CheckState):
+            """Establecer estado de checkbox recursivamente"""
+            item.setCheckState(0, state)
+            for i in range(item.childCount()):
+                self._set_check_state_recursive(item.child(i), state)
+
+        def update_selection_summary(self):
+            """Actualizar resumen de selección"""
+            selected_count = 0
+            selected_images = 0
+            total_count = len(self.leaf_items)
+            total_images = 0
+
+            for item in self.leaf_items:
+                image_count = item.data(0, Qt.UserRole + 2) or 0
+                total_images += image_count
+
+                if item.checkState(0) == Qt.Checked:
+                    selected_count += 1
+                    selected_images += image_count
+
+            if selected_count > 0:
+                self.status_label.setText(
+                    f"Seleccionadas: {selected_count}/{total_count} carpetas  •  {selected_images:,} imágenes"
+                )
+                self.status_label.setStyleSheet("color: #28a745; font-weight: bold;")
+                self.classify_btn.setEnabled(True)
+            else:
+                self.status_label.setText(
+                    f"Ninguna carpeta seleccionada (Total: {total_count} carpetas, {total_images:,} imágenes)"
+                )
+                self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
+                self.classify_btn.setEnabled(False)
+
+            # Actualizar estado de "Seleccionar todas"
+            self.select_all_cb.blockSignals(True)
+            if selected_count == total_count and total_count > 0:
+                self.select_all_cb.setChecked(True)
+            elif selected_count == 0:
+                self.select_all_cb.setChecked(False)
+            self.select_all_cb.blockSignals(False)
+
+        def get_selected_folders(self) -> list:
+            """Obtener solo las carpetas seleccionadas (hojas marcadas)"""
+            selected = []
+            for item in self.leaf_items:
+                if item.checkState(0) == Qt.Checked:
+                    folder_path = item.data(0, Qt.UserRole)
+                    if folder_path:
+                        selected.append(folder_path)
+            return selected
 
         def open_classifier(self):
             """Abrir dialogo de clasificacion"""
-            if not self.crop_folders:
-                QMessageBox.warning(self, "Error", "Primero cargue carpetas de crops")
+            selected_folders = self.get_selected_folders()
+
+            if not selected_folders:
+                QMessageBox.warning(self, "Error", "Seleccione al menos una carpeta")
                 return
 
             typologies = load_typologies()
 
             dialog = ClassificationGalleryDialog(
-                crop_folders=self.crop_folders,
+                crop_folders=selected_folders,
                 default_typologies=typologies,
                 additional_typologies=[],
                 parent=self

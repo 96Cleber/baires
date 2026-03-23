@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from queue import Queue
 
+from .typologies import get_cached_folder_classes
+
 
 def get_resource_path(relative_path: str) -> str:
     """Obtener ruta de recurso, compatible con PyInstaller"""
@@ -200,14 +202,8 @@ class CropManager:
     
     def _create_class_directories(self):
         """Crear directorios para cada clase de vehículo"""
-        # Clases YOLO (inglés) + clases adicionales para reclasificación (español)
-        classes = [
-            # Clases YOLO (inglés)
-            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
-            # Clases adicionales para reclasificación manual (español)
-            'camioneta', 'combi', 'microbus', 'mototaxi', 'omnibus',
-            'remolque', 'taxi', 'trailer', 'van', 'minivan', 'otros'
-        ]
+        # Clases cargadas dinámicamente desde tipologias.txt
+        classes = get_cached_folder_classes()
 
         for crop_dir in [self.all_crops_dir, self.od_crops_dir]:
             for class_name in classes:

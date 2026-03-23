@@ -2,27 +2,38 @@
 Diálogo para clasificación manual de crops
 """
 
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QComboBox, QGridLayout, QScrollArea,
                             QWidget, QMessageBox, QProgressBar, QGroupBox,
                             QCheckBox, QSpinBox, QInputDialog, QLineEdit)
 from PyQt5.QtGui import QPixmap, QFont, QPainter, QPen, QColor
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QRect
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict
+
+# Importar módulo de tipologías centralizado
+def _get_tools_path():
+    if hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(__file__))
+
+sys.path.insert(0, _get_tools_path())
+from tools.typologies import get_cached_folder_to_tipologia, get_cached_folder_classes
 
 
 class ManualClassificationDialog(QDialog):
     """Diálogo para clasificación manual de detecciones"""
-    
+
     def __init__(self, crop_manager, parent=None):
         super().__init__(parent)
         self.crop_manager = crop_manager
         self.current_crops = []
         self.current_index = 0
         self.classifications_changed = []
-        self.available_classes = ['auto', 'bicicleta', 'bus', 'camion', 'camioneta', 'combi', 'microbus', 'moto', 'mototaxi', 'omnibus', 'persona', 'remolque', 'taxi', 'trailer', 'otros']
+        # Clases cargadas dinámicamente desde el módulo centralizado
+        self.available_classes = get_cached_folder_classes()
         self.custom_classes = []
         
         self.setWindowTitle("Clasificación Manual de Detecciones")
@@ -226,17 +237,10 @@ class ManualClassificationDialog(QDialog):
             child = self.quick_buttons_layout.itemAt(i).widget()
             if child:
                 child.deleteLater()
-        
-        # Mapeo de clases a etiquetas en español
-        class_labels = {
-            'person': 'Persona',
-            'bicycle': 'Bicicleta', 
-            'car': 'Carro',
-            'motorcycle': 'Moto',
-            'bus': 'Bus',
-            'truck': 'Camión'
-        }
-        
+
+        # Mapeo de clases a etiquetas en español (cargado dinámicamente)
+        class_labels = get_cached_folder_to_tipologia()
+
         # Añadir botones para todas las clases disponibles
         all_classes = self.available_classes + self.custom_classes
         

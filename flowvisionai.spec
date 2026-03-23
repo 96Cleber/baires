@@ -24,6 +24,12 @@ hidden_imports = [
     'PIL',
     'PIL.Image',
     'pathlib',
+    # Módulos internos del proyecto
+    'tools',
+    'tools.typologies',
+    'tools.crop_manager',
+    'ui',
+    'ui.classification_gallery_dialog',
 ]
 
 a = Analysis(

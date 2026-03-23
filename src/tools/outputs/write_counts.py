@@ -2,14 +2,10 @@ import os
 import sqlite3
 from openpyxl import load_workbook, Workbook
 
-TRANSLATIONS = {
-    "car": "Auto",
-    "motorcycle": "Moto",
-    "bus": "Bus",
-    "truck": "Camion",
-    "bicycle": "Bicicleta",
-    "person": "Persona"
-}
+from ..typologies import get_translations, YOLO_CLASSES, get_cached_tipologia_to_folder
+
+# Obtener traducciones dinámicamente desde el módulo centralizado
+TRANSLATIONS = get_translations()
 
 def write_counts_to_excel(video_folder: str, quarter_no: int, wb: Workbook, excel_report_path: str, total_typologies: list[str]) -> None:
     '''Writes vehicle counts from database to Excel report file.
@@ -47,10 +43,19 @@ def write_counts_to_excel(video_folder: str, quarter_no: int, wb: Workbook, exce
     cursor = conn.cursor()
     
     # Define vehicle types and initialize count dictionary
-    vehicles_types = ["car", "motorcycle", "bus", "truck", "bicycle"]
-    additional_typologies = total_typologies[5:] # NOTE: Only additional typologies and not considering pedestrians
-    additional_typologies = [elem.lower() for elem in additional_typologies] # Lowercase.
-    vehicles_types.extend(additional_typologies)
+    # Usar clases YOLO (en inglés) excluyendo 'person' para conteos vehiculares
+    yolo_vehicle_types = [cls for cls in YOLO_CLASSES if cls != 'person']
+
+    # Obtener tipologías adicionales (las que no son YOLO) y convertir a nombre de carpeta
+    tipologia_to_folder = get_cached_tipologia_to_folder()
+    yolo_tipologias = {'Auto', 'Bicicleta', 'Bus', 'Camion', 'Moto', 'Persona'}
+    additional_typologies = [
+        tipologia_to_folder.get(t, t.lower())
+        for t in total_typologies
+        if t not in yolo_tipologias
+    ]
+
+    vehicles_types = yolo_vehicle_types + additional_typologies
     # Create a set of all possible turns across all directions for initializing counts
     all_turns = set()
     for turns_list in TURNS.values():
