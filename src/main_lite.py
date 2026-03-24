@@ -53,17 +53,36 @@ def find_crop_folders_recursive(parent_folder: str, pattern_start: str = "hiv",
     return found
 
 
-def count_images_in_folder(folder: Path) -> int:
-    """Contar imágenes en una carpeta de crops"""
+def count_images_in_folder(folder: Path) -> tuple:
+    """Contar imágenes en una carpeta de crops
+
+    Returns:
+        Tupla (total, validadas) con el conteo de imágenes
+    """
     total = 0
+    validated = 0
     try:
         for subdir in folder.iterdir():
             if subdir.is_dir():
+                # Saltar la carpeta validados para el conteo de pendientes
+                if subdir.name == "validados":
+                    continue
+
+                # Contar imágenes pendientes
                 total += len(list(subdir.glob("*.jpg")))
                 total += len(list(subdir.glob("*.png")))
+
+                # Contar imágenes validadas en subcarpeta validados/
+                validated_dir = subdir / "validados"
+                if validated_dir.exists():
+                    validated += len(list(validated_dir.glob("*.jpg")))
+                    validated += len(list(validated_dir.glob("*.png")))
     except Exception:
         pass
-    return total
+
+    # El total incluye tanto pendientes como validadas
+    total_all = total + validated
+    return total_all, validated
 
 
 def build_folder_tree(folders: List[Path], root_folder: Path) -> Dict:
@@ -109,7 +128,7 @@ def main():
                                   QWidget, QLabel, QMessageBox, QFrame,
                                   QTreeWidget, QTreeWidgetItem, QHeaderView,
                                   QCheckBox)
-    from PyQt5.QtGui import QFont
+    from PyQt5.QtGui import QFont, QColor
     from PyQt5.QtCore import Qt
 
     from ui.classification_gallery_dialog import ClassificationGalleryDialog
@@ -163,7 +182,7 @@ def main():
 
             # Árbol de carpetas
             self.tree_widget = QTreeWidget()
-            self.tree_widget.setHeaderLabels(["Carpeta", "Imágenes"])
+            self.tree_widget.setHeaderLabels(["Carpeta", "Imágenes", "Validadas"])
             self.tree_widget.setMinimumHeight(250)
             self.tree_widget.setMaximumHeight(350)
             self.tree_widget.setStyleSheet("""
@@ -188,6 +207,7 @@ def main():
             header.setStretchLastSection(False)
             header.setSectionResizeMode(0, QHeaderView.Stretch)
             header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
             layout.addWidget(self.tree_widget)
 
@@ -326,9 +346,25 @@ def main():
 
                 if data['_is_leaf']:
                     # Es una carpeta crops_od (hoja)
-                    image_count = count_images_in_folder(data['_path'])
+                    image_count, validated_count = count_images_in_folder(data['_path'])
                     item.setText(1, f"{image_count:,}")
                     item.setData(0, Qt.UserRole + 2, image_count)
+                    item.setData(0, Qt.UserRole + 3, validated_count)  # Guardar validadas
+
+                    # Mostrar porcentaje de validación
+                    if image_count > 0:
+                        percent = (validated_count / image_count) * 100
+                        item.setText(2, f"{percent:.0f}% ({validated_count:,})")
+                        # Color según porcentaje
+                        if percent == 100:
+                            item.setForeground(2, QColor("#28a745"))  # Verde
+                        elif percent >= 50:
+                            item.setForeground(2, QColor("#ffc107"))  # Amarillo
+                        else:
+                            item.setForeground(2, QColor("#dc3545"))  # Rojo
+                    else:
+                        item.setText(2, "0%")
+
                     self.leaf_items.append(item)
                 else:
                     # Es una carpeta intermedia (rama)
@@ -340,20 +376,37 @@ def main():
 
                     # Calcular total de imágenes para carpetas intermedias
                     if not data['_is_leaf']:
-                        total = self._count_images_recursive(item)
+                        total, validated = self._count_images_recursive(item)
                         item.setText(1, f"({total:,})")
+                        if total > 0:
+                            percent = (validated / total) * 100
+                            item.setText(2, f"{percent:.0f}% ({validated:,})")
+                            if percent == 100:
+                                item.setForeground(2, QColor("#28a745"))
+                            elif percent >= 50:
+                                item.setForeground(2, QColor("#ffc107"))
+                            else:
+                                item.setForeground(2, QColor("#dc3545"))
 
-        def _count_images_recursive(self, item: QTreeWidgetItem) -> int:
-            """Contar imágenes en todos los hijos recursivamente"""
+        def _count_images_recursive(self, item: QTreeWidgetItem) -> tuple:
+            """Contar imágenes en todos los hijos recursivamente
+
+            Returns:
+                Tupla (total, validadas)
+            """
             total = 0
+            validated = 0
             for i in range(item.childCount()):
                 child = item.child(i)
                 is_leaf = child.data(0, Qt.UserRole + 1)
                 if is_leaf:
                     total += child.data(0, Qt.UserRole + 2) or 0
+                    validated += child.data(0, Qt.UserRole + 3) or 0
                 else:
-                    total += self._count_images_recursive(child)
-            return total
+                    child_total, child_validated = self._count_images_recursive(child)
+                    total += child_total
+                    validated += child_validated
+            return total, validated
 
         def on_item_changed(self, item: QTreeWidgetItem, column: int):
             """Manejar cambio de estado de checkbox"""
@@ -383,26 +436,47 @@ def main():
             """Actualizar resumen de selección"""
             selected_count = 0
             selected_images = 0
+            selected_validated = 0
             total_count = len(self.leaf_items)
             total_images = 0
+            total_validated = 0
 
             for item in self.leaf_items:
                 image_count = item.data(0, Qt.UserRole + 2) or 0
+                validated_count = item.data(0, Qt.UserRole + 3) or 0
                 total_images += image_count
+                total_validated += validated_count
 
                 if item.checkState(0) == Qt.Checked:
                     selected_count += 1
                     selected_images += image_count
+                    selected_validated += validated_count
 
             if selected_count > 0:
+                # Calcular porcentaje de validación
+                if selected_images > 0:
+                    percent = (selected_validated / selected_images) * 100
+                    validation_text = f"  •  Validadas: {percent:.1f}%"
+                else:
+                    validation_text = ""
+
                 self.status_label.setText(
-                    f"Seleccionadas: {selected_count}/{total_count} carpetas  •  {selected_images:,} imágenes"
+                    f"Seleccionadas: {selected_count}/{total_count} carpetas  •  "
+                    f"{selected_images:,} imágenes{validation_text}"
                 )
                 self.status_label.setStyleSheet("color: #28a745; font-weight: bold;")
                 self.classify_btn.setEnabled(True)
             else:
+                # Calcular porcentaje total
+                if total_images > 0:
+                    percent = (total_validated / total_images) * 100
+                    validation_text = f", {percent:.1f}% validadas"
+                else:
+                    validation_text = ""
+
                 self.status_label.setText(
-                    f"Ninguna carpeta seleccionada (Total: {total_count} carpetas, {total_images:,} imágenes)"
+                    f"Ninguna carpeta seleccionada (Total: {total_count} carpetas, "
+                    f"{total_images:,} imágenes{validation_text})"
                 )
                 self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
                 self.classify_btn.setEnabled(False)

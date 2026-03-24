@@ -465,8 +465,42 @@ class ClassificationGalleryDialog(QDialog):
         # Información de resumen
         self.summary_label = QLabel("Cargando...")
         controls_layout.addWidget(self.summary_label)
-        
+
         layout.addLayout(controls_layout)
+
+        # Barra de progreso de validación global
+        validation_layout = QHBoxLayout()
+
+        self.global_validation_label = QLabel("Progreso de validación global:")
+        self.global_validation_label.setFont(QFont("Arial", 10, QFont.Bold))
+        validation_layout.addWidget(self.global_validation_label)
+
+        self.validation_progress = QProgressBar()
+        self.validation_progress.setMinimum(0)
+        self.validation_progress.setMaximum(100)
+        self.validation_progress.setValue(0)
+        self.validation_progress.setFormat("%v% (%p validadas de %m)")
+        self.validation_progress.setMinimumWidth(300)
+        self.validation_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #f0f0f0;
+            }
+            QProgressBar::chunk {
+                background-color: #28a745;
+                border-radius: 4px;
+            }
+        """)
+        validation_layout.addWidget(self.validation_progress)
+
+        self.validation_stats_label = QLabel("")
+        self.validation_stats_label.setStyleSheet("color: #666; font-size: 10pt;")
+        validation_layout.addWidget(self.validation_stats_label)
+
+        validation_layout.addStretch()
+        layout.addLayout(validation_layout)
         
         # Área de miniaturas con scroll
         self.scroll_area = QScrollArea()
@@ -564,7 +598,10 @@ class ClassificationGalleryDialog(QDialog):
         layout.addLayout(button_layout)
         
         self.setLayout(layout)
-    
+
+        # Cargar estadísticas globales iniciales
+        self.update_global_validation_display()
+
     def on_class_changed(self):
         """Manejar cambio de clase seleccionada"""
         selected_data = self.class_combo.currentData()
@@ -993,6 +1030,9 @@ class ClassificationGalleryDialog(QDialog):
             # Recargar la vista UNA SOLA VEZ al final
             self.load_class_thumbnails()
 
+            # Actualizar estadísticas globales
+            self.update_global_validation_display()
+
         # Resetear combo
         self.reclassify_combo.setCurrentIndex(0)
 
@@ -1034,6 +1074,9 @@ class ClassificationGalleryDialog(QDialog):
 
         # Recargar vista
         self.load_class_thumbnails()
+
+        # Actualizar estadísticas globales
+        self.update_global_validation_display()
 
         if validated_count > 0:
             QMessageBox.information(
@@ -1118,6 +1161,68 @@ class ClassificationGalleryDialog(QDialog):
             
             # Recargar vista actual
             self.load_class_thumbnails()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error guardando: {e}")
+
+    def calculate_global_validation_stats(self):
+        """Calcular estadísticas globales de validación de todas las carpetas"""
+        total_images = 0
+        validated_images = 0
+
+        # Modo multi-carpeta
+        if self.crop_folders:
+            for crop_folder in self.crop_folders:
+                try:
+                    for class_dir in crop_folder.iterdir():
+                        if class_dir.is_dir() and class_dir.name != "validados":
+                            # Contar pendientes
+                            total_images += len(list(class_dir.glob("*.jpg")))
+                            total_images += len(list(class_dir.glob("*.png")))
+
+                            # Contar validadas
+                            validated_dir = class_dir / "validados"
+                            if validated_dir.exists():
+                                val_count = len(list(validated_dir.glob("*.jpg")))
+                                val_count += len(list(validated_dir.glob("*.png")))
+                                validated_images += val_count
+                                total_images += val_count
+                except Exception:
+                    pass
+
+        # Modo tradicional con crop_manager
+        elif self.crop_manager:
+            for base_dir in [self.crop_manager.all_crops_dir, self.crop_manager.od_crops_dir]:
+                if base_dir and base_dir.exists():
+                    try:
+                        for class_dir in base_dir.iterdir():
+                            if class_dir.is_dir() and class_dir.name != "validados":
+                                total_images += len(list(class_dir.glob("*.jpg")))
+                                total_images += len(list(class_dir.glob("*.png")))
+
+                                validated_dir = class_dir / "validados"
+                                if validated_dir.exists():
+                                    val_count = len(list(validated_dir.glob("*.jpg")))
+                                    val_count += len(list(validated_dir.glob("*.png")))
+                                    validated_images += val_count
+                                    total_images += val_count
+                    except Exception:
+                        pass
+
+        return total_images, validated_images
+
+    def update_global_validation_display(self):
+        """Actualizar la visualización de estadísticas globales de validación"""
+        total, validated = self.calculate_global_validation_stats()
+
+        if total > 0:
+            percent = int((validated / total) * 100)
+            self.validation_progress.setMaximum(total)
+            self.validation_progress.setValue(validated)
+            self.validation_progress.setFormat(f"{percent}%")
+            self.validation_stats_label.setText(
+                f"{validated:,} de {total:,} imágenes validadas"
+            )
+        else:
+            self.validation_progress.setValue(0)
+            self.validation_stats_label.setText("Sin imágenes")
