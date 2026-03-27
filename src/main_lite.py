@@ -6,6 +6,7 @@ Punto de entrada ligero sin dependencias pesadas (YOLO, PyTorch)
 
 import sys
 import os
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -243,6 +244,51 @@ def main():
             self.load_btn.clicked.connect(self.load_crop_folders)
             btn_layout.addWidget(self.load_btn)
 
+            # Botón cargar configuración
+            self.load_config_btn = QPushButton("Cargar Config")
+            self.load_config_btn.setMinimumSize(150, 50)
+            self.load_config_btn.setFont(QFont("Arial", 11))
+            self.load_config_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #17a2b8;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 10px 20px;
+                }
+                QPushButton:hover {
+                    background-color: #138496;
+                }
+                QPushButton:pressed {
+                    background-color: #117a8b;
+                }
+            """)
+            self.load_config_btn.clicked.connect(self.load_folder_config)
+            btn_layout.addWidget(self.load_config_btn)
+
+            # Botón guardar configuración
+            self.save_config_btn = QPushButton("Guardar Config")
+            self.save_config_btn.setMinimumSize(150, 50)
+            self.save_config_btn.setFont(QFont("Arial", 11))
+            self.save_config_btn.setVisible(False)  # Oculto hasta que haya carpetas
+            self.save_config_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #6c757d;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 10px 20px;
+                }
+                QPushButton:hover {
+                    background-color: #5a6268;
+                }
+                QPushButton:pressed {
+                    background-color: #545b62;
+                }
+            """)
+            self.save_config_btn.clicked.connect(self.save_folder_config)
+            btn_layout.addWidget(self.save_config_btn)
+
             self.classify_btn = QPushButton("Abrir Clasificador")
             self.classify_btn.setMinimumSize(200, 50)
             self.classify_btn.setFont(QFont("Arial", 11))
@@ -326,6 +372,7 @@ def main():
             self.select_all_cb.setVisible(True)
             self.select_all_cb.setChecked(True)
             self.tree_widget.setVisible(True)
+            self.save_config_btn.setVisible(True)
 
             self.update_selection_summary()
 
@@ -498,6 +545,132 @@ def main():
                     if folder_path:
                         selected.append(folder_path)
             return selected
+
+        def save_folder_config(self):
+            """Guardar configuración de carpetas seleccionadas"""
+            if not self.root_folder:
+                QMessageBox.warning(self, "Aviso", "No hay carpetas cargadas para guardar")
+                return
+
+            # Diálogo para elegir dónde guardar
+            default_name = f"{self.root_folder.name}_config.json"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar configuración de carpetas",
+                default_name,
+                "JSON (*.json)"
+            )
+
+            if not file_path:
+                return
+
+            if not file_path.endswith('.json'):
+                file_path += '.json'
+
+            try:
+                # Obtener carpetas seleccionadas
+                selected = [str(f) for f in self.get_selected_folders()]
+
+                config = {
+                    "root_folder": str(self.root_folder),
+                    "selected_folders": selected
+                }
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+
+                QMessageBox.information(
+                    self,
+                    "Guardado",
+                    f"Configuración guardada correctamente.\n\n"
+                    f"Archivo: {Path(file_path).name}\n"
+                    f"Carpetas seleccionadas: {len(selected)}"
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
+
+        def load_folder_config(self):
+            """Cargar configuración desde archivo elegido por el usuario"""
+            # Diálogo para elegir archivo a cargar
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Cargar configuración de carpetas",
+                "",
+                "JSON (*.json)"
+            )
+
+            if not file_path:
+                return
+
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+
+                root_folder = config.get("root_folder")
+                selected_folders = set(config.get("selected_folders", []))
+
+                if not root_folder:
+                    QMessageBox.warning(self, "Error", "El archivo no contiene carpeta raíz")
+                    return
+
+                if not Path(root_folder).exists():
+                    QMessageBox.warning(
+                        self,
+                        "Error",
+                        f"La carpeta raíz ya no existe:\n{root_folder}"
+                    )
+                    return
+
+                # Cargar carpetas
+                self.root_folder = Path(root_folder).resolve()
+                self.crop_folders = find_crop_folders_recursive(root_folder)
+
+                if not self.crop_folders:
+                    QMessageBox.warning(
+                        self,
+                        "Sin resultados",
+                        "No se encontraron carpetas hiv*_crops_od en la ubicación guardada."
+                    )
+                    return
+
+                # Construir árbol
+                self.tree_widget.clear()
+                self.leaf_items.clear()
+                tree_structure = build_folder_tree(self.crop_folders, self.root_folder)
+
+                self.tree_widget.blockSignals(True)
+                self._populate_tree(tree_structure, self.tree_widget.invisibleRootItem())
+                self.tree_widget.expandAll()
+
+                # Restaurar estado de checkboxes
+                restored_count = 0
+                for item in self.leaf_items:
+                    folder_path = str(item.data(0, Qt.UserRole))
+                    if folder_path in selected_folders:
+                        item.setCheckState(0, Qt.Checked)
+                        restored_count += 1
+                    else:
+                        item.setCheckState(0, Qt.Unchecked)
+
+                self.tree_widget.blockSignals(False)
+
+                # Mostrar UI
+                self.select_all_cb.setVisible(True)
+                self.tree_widget.setVisible(True)
+                self.save_config_btn.setVisible(True)
+                self.update_selection_summary()
+
+                QMessageBox.information(
+                    self,
+                    "Configuración cargada",
+                    f"Se restauraron {restored_count} carpetas seleccionadas\n"
+                    f"de {len(self.leaf_items)} carpetas encontradas."
+                )
+
+            except json.JSONDecodeError:
+                QMessageBox.critical(self, "Error", "El archivo no es un JSON válido")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo cargar: {e}")
 
         def open_classifier(self):
             """Abrir dialogo de clasificacion"""
