@@ -6,8 +6,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QComboBox, QScrollArea, QWidget,
                             QMessageBox, QProgressBar, QGroupBox, QCheckBox,
                             QGridLayout, QFrame, QSplitter, QTabWidget,
-                            QInputDialog, QLineEdit, QToolTip, QErrorMessage,
-                            QApplication)
+                            QInputDialog, QLineEdit, QToolTip, QErrorMessage)
 from PyQt5.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QRect, QSize, QTimer
 import os
@@ -34,15 +33,14 @@ class ThumbnailLabel(QLabel):
     """Label personalizado para miniaturas con funcionalidad de click"""
 
     clicked = pyqtSignal(str, dict, object)  # crop_filename, crop_data, QMouseEvent
-
-    def __init__(self, crop_data: dict, crop_path: Path, thumbnail_size=180, pixmap_cache=None):
+    
+    def __init__(self, crop_data: dict, crop_path: Path, thumbnail_size=180):
         super().__init__()
         self.crop_data = crop_data
         self.crop_path = crop_path
         self.thumbnail_size = thumbnail_size
         self.is_selected = False
-        self._cached_pixmap = pixmap_cache  # Pixmap precargado
-
+        
         self.setFixedSize(thumbnail_size, thumbnail_size)
         self.setStyleSheet("""
             QLabel {
@@ -59,26 +57,20 @@ class ThumbnailLabel(QLabel):
         self.setAlignment(Qt.AlignCenter)
         self.setScaledContents(True)
         self.setCursor(QCursor(Qt.PointingHandCursor))
-
+        
         self.load_thumbnail()
         self.setToolTip(self.create_tooltip())
-
+    
     def load_thumbnail(self):
-        """Cargar y mostrar la miniatura (usa cache si está disponible)"""
-        # Usar pixmap cacheado si existe
-        if self._cached_pixmap is not None:
-            self.setPixmap(self._cached_pixmap)
-            return
-
-        # Cargar desde disco si no hay cache
+        """Cargar y mostrar la miniatura"""
         if self.crop_path.exists():
             pixmap = QPixmap(str(self.crop_path))
             if not pixmap.isNull():
                 # Escalar manteniendo aspecto
                 scaled_pixmap = pixmap.scaled(
+                    self.thumbnail_size - 10, 
                     self.thumbnail_size - 10,
-                    self.thumbnail_size - 10,
-                    Qt.KeepAspectRatio,
+                    Qt.KeepAspectRatio, 
                     Qt.SmoothTransformation
                 )
                 self.setPixmap(scaled_pixmap)
@@ -396,10 +388,6 @@ class ClassificationGalleryDialog(QDialog):
         self.selected_thumbnails = []  # Lista de thumbnails seleccionados
         self.last_selected_index = -1  # Índice del último seleccionado (para Shift)
 
-        # Cache de datos e imágenes precargadas
-        self.all_images_data = {}  # {class_name: [thumb_data, ...]}
-        self.pixmap_cache = {}  # {file_path: QPixmap} - cache de imágenes cargadas
-
         self.setWindowTitle("Galería de Clasificación Manual")
         self.setMinimumSize(800, 600)
         self.resize(1200, 800)  # Tamaño inicial
@@ -409,7 +397,6 @@ class ClassificationGalleryDialog(QDialog):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.init_ui()
-        self.preload_all_images()  # Precargar todas las imágenes al inicio
         self.load_class_thumbnails()
     
     def init_ui(self):
@@ -622,7 +609,7 @@ class ClassificationGalleryDialog(QDialog):
         self.load_class_thumbnails()
     
     def load_class_thumbnails(self):
-        """Cargar miniaturas de la clase seleccionada usando el cache precargado"""
+        """Cargar miniaturas de la clase seleccionada desde las carpetas"""
         try:
             # Limpiar selección múltiple
             self.selected_thumbnails.clear()
@@ -646,27 +633,92 @@ class ClassificationGalleryDialog(QDialog):
                 self.update_selection_ui()
                 return
 
-            # Usar datos del cache si está disponible
-            if self.all_images_data and selected_class in self.all_images_data:
+            # Buscar imágenes en las carpetas de la clase (en inglés)
+            thumbnail_data = []
+
+            # Modo multi-carpeta (para main_lite.py)
+            if self.crop_folders:
                 show_pending_only = self.pending_only_cb.isChecked()
 
-                # Filtrar según configuración
-                thumbnail_data = []
-                for thumb in self.all_images_data[selected_class]:
-                    # Filtrar por estado de validación
-                    if show_pending_only and thumb.get('validated', False):
-                        continue
-                    thumbnail_data.append(thumb)
-            else:
-                # Fallback: cargar desde disco si no hay cache
-                thumbnail_data = self._load_thumbnails_from_disk(selected_class)
+                for crop_folder in self.crop_folders:
+                    class_dir = crop_folder / selected_class
+                    if class_dir.exists():
+                        # Cargar imágenes pendientes (no validadas)
+                        for img_file in class_dir.glob("*.jpg"):
+                            # Saltar si está en subcarpeta validados
+                            if img_file.parent.name == "validados":
+                                continue
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class,
+                                'source_folder': crop_folder,
+                                'validated': False
+                            })
+                        for img_file in class_dir.glob("*.png"):
+                            if img_file.parent.name == "validados":
+                                continue
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class,
+                                'source_folder': crop_folder,
+                                'validated': False
+                            })
 
-            # Crear miniaturas usando el cache de pixmaps
+                        # Si no es solo pendientes, también cargar validados
+                        if not show_pending_only:
+                            validated_dir = class_dir / "validados"
+                            if validated_dir.exists():
+                                for img_file in validated_dir.glob("*.jpg"):
+                                    thumbnail_data.append({
+                                        'path': img_file,
+                                        'filename': img_file.name,
+                                        'type': 'od',
+                                        'class': selected_class,
+                                        'source_folder': crop_folder,
+                                        'validated': True
+                                    })
+                                for img_file in validated_dir.glob("*.png"):
+                                    thumbnail_data.append({
+                                        'path': img_file,
+                                        'filename': img_file.name,
+                                        'type': 'od',
+                                        'class': selected_class,
+                                        'source_folder': crop_folder,
+                                        'validated': True
+                                    })
+
+            # Modo tradicional con crop_manager
+            elif self.crop_manager:
+                if self.all_crops_cb.isChecked():
+                    all_class_dir = self.crop_manager.all_crops_dir / selected_class
+                    if all_class_dir.exists():
+                        for img_file in all_class_dir.glob("*.jpg"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'all',
+                                'class': selected_class
+                            })
+
+                if self.od_crops_cb.isChecked():
+                    od_class_dir = self.crop_manager.od_crops_dir / selected_class
+                    if od_class_dir.exists():
+                        for img_file in od_class_dir.glob("*.jpg"):
+                            thumbnail_data.append({
+                                'path': img_file,
+                                'filename': img_file.name,
+                                'type': 'od',
+                                'class': selected_class
+                            })
+
+            # Crear miniaturas
             cols = 6  # Número de columnas (ajustado para thumbnails de 180px)
             for i, thumb_data in enumerate(thumbnail_data):
-                # Usar pixmap cacheado si existe
-                cached_pixmap = self.pixmap_cache.get(str(thumb_data['path']))
-                thumbnail = ThumbnailLabel(thumb_data, thumb_data['path'], pixmap_cache=cached_pixmap)
+                thumbnail = ThumbnailLabel(thumb_data, thumb_data['path'])
                 thumbnail.clicked.connect(self.on_thumbnail_clicked)
 
                 row = i // cols
@@ -740,86 +792,7 @@ class ClassificationGalleryDialog(QDialog):
         # Actualizar UI según selección
         self.selected_thumbnail = thumbnail
         self.update_selection_ui()
-
-    def _load_thumbnails_from_disk(self, selected_class: str) -> list:
-        """Fallback: cargar datos de thumbnails desde disco (sin cache)"""
-        thumbnail_data = []
-        show_pending_only = self.pending_only_cb.isChecked()
-
-        if self.crop_folders:
-            for crop_folder in self.crop_folders:
-                class_dir = crop_folder / selected_class
-                if class_dir.exists():
-                    for img_file in class_dir.glob("*.jpg"):
-                        if img_file.parent.name == "validados":
-                            continue
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'od',
-                            'class': selected_class,
-                            'source_folder': crop_folder,
-                            'validated': False
-                        })
-                    for img_file in class_dir.glob("*.png"):
-                        if img_file.parent.name == "validados":
-                            continue
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'od',
-                            'class': selected_class,
-                            'source_folder': crop_folder,
-                            'validated': False
-                        })
-
-                    if not show_pending_only:
-                        validated_dir = class_dir / "validados"
-                        if validated_dir.exists():
-                            for img_file in validated_dir.glob("*.jpg"):
-                                thumbnail_data.append({
-                                    'path': img_file,
-                                    'filename': img_file.name,
-                                    'type': 'od',
-                                    'class': selected_class,
-                                    'source_folder': crop_folder,
-                                    'validated': True
-                                })
-                            for img_file in validated_dir.glob("*.png"):
-                                thumbnail_data.append({
-                                    'path': img_file,
-                                    'filename': img_file.name,
-                                    'type': 'od',
-                                    'class': selected_class,
-                                    'source_folder': crop_folder,
-                                    'validated': True
-                                })
-
-        elif self.crop_manager:
-            if self.all_crops_cb.isChecked():
-                all_class_dir = self.crop_manager.all_crops_dir / selected_class
-                if all_class_dir.exists():
-                    for img_file in all_class_dir.glob("*.jpg"):
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'all',
-                            'class': selected_class
-                        })
-
-            if self.od_crops_cb.isChecked():
-                od_class_dir = self.crop_manager.od_crops_dir / selected_class
-                if od_class_dir.exists():
-                    for img_file in od_class_dir.glob("*.jpg"):
-                        thumbnail_data.append({
-                            'path': img_file,
-                            'filename': img_file.name,
-                            'type': 'od',
-                            'class': selected_class
-                        })
-
-        return thumbnail_data
-
+    
     def show_class_selection_dialog(self, thumb_data: dict):
         """Mostrar diálogo de selección de clase"""
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox
@@ -953,28 +926,6 @@ class ClassificationGalleryDialog(QDialog):
 
             # Mover archivo
             old_path.rename(new_path)
-
-            # Actualizar cache de datos
-            old_class = thumb_data['class']
-            if self.all_images_data:
-                # Remover de la clase antigua
-                if old_class in self.all_images_data:
-                    self.all_images_data[old_class] = [
-                        t for t in self.all_images_data[old_class]
-                        if str(t['path']) != str(old_path)
-                    ]
-                # Agregar a la nueva clase
-                if new_class in self.all_images_data:
-                    new_thumb_data = thumb_data.copy()
-                    new_thumb_data['path'] = new_path
-                    new_thumb_data['class'] = new_class
-                    new_thumb_data['validated'] = True
-                    self.all_images_data[new_class].append(new_thumb_data)
-
-                # Actualizar cache de pixmap con la nueva ruta
-                old_path_str = str(old_path)
-                if old_path_str in self.pixmap_cache:
-                    self.pixmap_cache[str(new_path)] = self.pixmap_cache.pop(old_path_str)
 
             # Actualizar datos en base de datos (solo si hay crop_manager)
             if self.crop_manager:
@@ -1166,21 +1117,6 @@ class ClassificationGalleryDialog(QDialog):
             new_path = validated_dir / old_path.name
             old_path.rename(new_path)
 
-            # Actualizar cache de datos
-            current_class = thumb_data['class']
-            if self.all_images_data and current_class in self.all_images_data:
-                # Actualizar el estado de validación en el cache
-                for t in self.all_images_data[current_class]:
-                    if str(t['path']) == str(old_path):
-                        t['path'] = new_path
-                        t['validated'] = True
-                        break
-
-                # Actualizar cache de pixmap
-                old_path_str = str(old_path)
-                if old_path_str in self.pixmap_cache:
-                    self.pixmap_cache[str(new_path)] = self.pixmap_cache.pop(old_path_str)
-
             return True
 
         except Exception as e:
@@ -1290,90 +1226,3 @@ class ClassificationGalleryDialog(QDialog):
         else:
             self.validation_progress.setValue(0)
             self.validation_stats_label.setText("Sin imágenes")
-
-    def preload_all_images(self):
-        """Precargar todas las imágenes y datos al inicio para cambios instantáneos"""
-        self.all_images_data = {cls: [] for cls in self.available_classes}
-        self.pixmap_cache = {}
-
-        # Contar total de imágenes primero para la barra de progreso
-        total_files = 0
-        files_to_load = []
-
-        # Recopilar todos los archivos
-        if self.crop_folders:
-            for crop_folder in self.crop_folders:
-                for class_name in self.available_classes:
-                    class_dir = crop_folder / class_name
-                    if class_dir.exists():
-                        # Imágenes pendientes
-                        for img_file in class_dir.glob("*.jpg"):
-                            if img_file.parent.name != "validados":
-                                files_to_load.append((img_file, class_name, crop_folder, False))
-                        for img_file in class_dir.glob("*.png"):
-                            if img_file.parent.name != "validados":
-                                files_to_load.append((img_file, class_name, crop_folder, False))
-
-                        # Imágenes validadas
-                        validated_dir = class_dir / "validados"
-                        if validated_dir.exists():
-                            for img_file in validated_dir.glob("*.jpg"):
-                                files_to_load.append((img_file, class_name, crop_folder, True))
-                            for img_file in validated_dir.glob("*.png"):
-                                files_to_load.append((img_file, class_name, crop_folder, True))
-
-        elif self.crop_manager:
-            for base_dir, crop_type in [(self.crop_manager.all_crops_dir, 'all'),
-                                         (self.crop_manager.od_crops_dir, 'od')]:
-                if base_dir and base_dir.exists():
-                    for class_name in self.available_classes:
-                        class_dir = base_dir / class_name
-                        if class_dir.exists():
-                            for img_file in class_dir.glob("*.jpg"):
-                                files_to_load.append((img_file, class_name, base_dir, False, crop_type))
-                            for img_file in class_dir.glob("*.png"):
-                                files_to_load.append((img_file, class_name, base_dir, False, crop_type))
-
-        total_files = len(files_to_load)
-        if total_files == 0:
-            return
-
-        # Mostrar progreso de carga
-        self.validation_stats_label.setText(f"Precargando {total_files} imágenes...")
-        QApplication.processEvents()
-
-        # Cargar imágenes en lotes para mantener la UI responsiva
-        batch_size = 50
-        for i, file_info in enumerate(files_to_load):
-            if len(file_info) == 4:
-                img_file, class_name, source_folder, validated = file_info
-                crop_type = 'od'
-            else:
-                img_file, class_name, source_folder, validated, crop_type = file_info
-
-            # Crear datos del thumbnail
-            thumb_data = {
-                'path': img_file,
-                'filename': img_file.name,
-                'type': crop_type,
-                'class': class_name,
-                'source_folder': source_folder,
-                'validated': validated
-            }
-            self.all_images_data[class_name].append(thumb_data)
-
-            # Precargar pixmap (miniatura)
-            if img_file.exists():
-                pixmap = QPixmap(str(img_file))
-                if not pixmap.isNull():
-                    # Escalar a tamaño de miniatura
-                    scaled = pixmap.scaled(170, 170, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.pixmap_cache[str(img_file)] = scaled
-
-            # Actualizar progreso cada batch
-            if (i + 1) % batch_size == 0:
-                percent = int((i + 1) / total_files * 100)
-                self.validation_stats_label.setText(f"Precargando... {percent}% ({i+1}/{total_files})")
-                QApplication.processEvents()
-
-        self.validation_stats_label.setText("")
