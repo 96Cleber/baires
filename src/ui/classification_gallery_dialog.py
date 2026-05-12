@@ -362,7 +362,7 @@ class ClassificationGalleryDialog(QDialog):
     """Diálogo de galería para clasificación manual rápida"""
     # TODO: Chequear como afecta acá las tipologías adicionales
     def __init__(self, crop_manager=None, default_typologies=None, additional_typologies=None,
-                 parent=None, crop_folders=None):
+                 parent=None, crop_folders=None, folder_max_frames=None):
         """
         Args:
             crop_manager: CropManager individual (modo tradicional)
@@ -370,12 +370,15 @@ class ClassificationGalleryDialog(QDialog):
             additional_typologies: Lista de tipologías adicionales
             parent: Widget padre
             crop_folders: Lista de carpetas de crops (modo multi-carpeta)
+            folder_max_frames: dict {crop_folder: max_origin_frame} para filtro
+                temporal por video. None = sin filtro (mostrar todas).
         """
         super().__init__(parent)
         self.default_typologies = default_typologies or []
         self.additional_typologies = additional_typologies or []
         self.crop_manager = crop_manager
         self.crop_folders = crop_folders or []  # Lista de Path para modo multi-carpeta
+        self.folder_max_frames = folder_max_frames  # None o dict {folder: max_frame}
         self.current_crops = []
         self.classifications_changed = []
         # Clases cargadas dinámicamente desde el módulo centralizado
@@ -640,6 +643,18 @@ class ClassificationGalleryDialog(QDialog):
             if self.crop_folders:
                 show_pending_only = self.pending_only_cb.isChecked()
 
+                def passes_frame_filter(img_name: str, crop_folder) -> bool:
+                    """Aplicar filtro temporal por video (None = sin filtro)."""
+                    if not self.folder_max_frames:
+                        return True
+                    max_frame = self.folder_max_frames.get(crop_folder)
+                    if max_frame is None:
+                        return True
+                    try:
+                        return int(img_name.split('_')[1]) <= max_frame
+                    except (ValueError, IndexError):
+                        return True
+
                 for crop_folder in self.crop_folders:
                     class_dir = crop_folder / selected_class
                     if class_dir.exists():
@@ -647,6 +662,8 @@ class ClassificationGalleryDialog(QDialog):
                         for img_file in class_dir.glob("*.jpg"):
                             # Saltar si está en subcarpeta validados
                             if img_file.parent.name == "validados":
+                                continue
+                            if not passes_frame_filter(img_file.name, crop_folder):
                                 continue
                             thumbnail_data.append({
                                 'path': img_file,
@@ -658,6 +675,8 @@ class ClassificationGalleryDialog(QDialog):
                             })
                         for img_file in class_dir.glob("*.png"):
                             if img_file.parent.name == "validados":
+                                continue
+                            if not passes_frame_filter(img_file.name, crop_folder):
                                 continue
                             thumbnail_data.append({
                                 'path': img_file,
@@ -673,6 +692,8 @@ class ClassificationGalleryDialog(QDialog):
                             validated_dir = class_dir / "validados"
                             if validated_dir.exists():
                                 for img_file in validated_dir.glob("*.jpg"):
+                                    if not passes_frame_filter(img_file.name, crop_folder):
+                                        continue
                                     thumbnail_data.append({
                                         'path': img_file,
                                         'filename': img_file.name,
@@ -682,6 +703,8 @@ class ClassificationGalleryDialog(QDialog):
                                         'validated': True
                                     })
                                 for img_file in validated_dir.glob("*.png"):
+                                    if not passes_frame_filter(img_file.name, crop_folder):
+                                        continue
                                     thumbnail_data.append({
                                         'path': img_file,
                                         'filename': img_file.name,

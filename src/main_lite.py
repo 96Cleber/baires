@@ -7,8 +7,15 @@ Punto de entrada ligero sin dependencias pesadas (YOLO, PyTorch)
 import sys
 import os
 import json
+import sqlite3
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
+
+
+FPS_FALLBACK = 15.0
+FPS_MIN_VALID = 5.0
+FPS_MAX_VALID = 120.0
 
 
 def get_resource_path(relative_path: str) -> str:
@@ -54,34 +61,102 @@ def find_crop_folders_recursive(parent_folder: str, pattern_start: str = "hiv",
     return found
 
 
-def count_images_in_folder(folder: Path) -> tuple:
-    """Contar imágenes en una carpeta de crops
+def detect_video_fps_from_db(crop_folder: Path,
+                             fallback_fps: float = FPS_FALLBACK
+                             ) -> Tuple[float, bool]:
+    """Inferir FPS real del video desde Conteos.db hermano de crop_folder.
+
+    Espera que crop_folder sea .../hivXXXXX/hivXXXXX_crops_od y que
+    .../hivXXXXX/Conteos.db contenga la tabla VehicleCounts.
 
     Returns:
-        Tupla (total, validadas) con el conteo de imágenes
+        Tupla (fps, measured): fps siempre tiene valor utilizable;
+        measured es True si se calculó realmente desde la DB, False si
+        se devolvió fallback_fps.
     """
+    db_path = crop_folder.parent / "Conteos.db"
+    if not db_path.exists():
+        return fallback_fps, False
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MIN(origin_frame), MAX(origin_frame),"
+                " MIN(timestamp), MAX(timestamp) FROM VehicleCounts"
+            )
+            row = cur.fetchone()
+        if not row or row[0] is None:
+            return fallback_fps, False
+        mn_f, mx_f, mn_t, mx_t = row
+        if mn_f == mx_f or mn_t == mx_t:
+            return fallback_fps, False
+        dt = (datetime.strptime(mx_t, '%Y-%m-%d %H:%M:%S')
+              - datetime.strptime(mn_t, '%Y-%m-%d %H:%M:%S')).total_seconds()
+        if dt <= 0:
+            return fallback_fps, False
+        fps = (mx_f - mn_f) / dt
+        if FPS_MIN_VALID <= fps <= FPS_MAX_VALID:
+            return fps, True
+        return fallback_fps, False
+    except Exception:
+        return fallback_fps, False
+
+
+def _parse_origin_frame(filename: str) -> Optional[int]:
+    """Extraer origin_frame del nombre del crop.
+
+    Formatos:
+      od_{origin}_{dest}_{id}_{class}_{turn}_{ts}.jpg
+      all_{frame}_{id}_{class}_{ts}.jpg
+    """
+    try:
+        return int(filename.split('_')[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def count_images_in_folder(folder: Path,
+                           max_frame: Optional[int] = None) -> tuple:
+    """Contar imágenes en una carpeta de crops, con filtro opcional por frame.
+
+    Args:
+        folder: Carpeta crops_od con subcarpetas por clase.
+        max_frame: Si está dado, solo cuenta crops cuyo origin_frame <= max_frame.
+
+    Returns:
+        Tupla (total, validadas) con el conteo de imágenes.
+    """
+    def passes(img_name: str) -> bool:
+        if max_frame is None:
+            return True
+        frame = _parse_origin_frame(img_name)
+        return frame is None or frame <= max_frame
+
     total = 0
     validated = 0
     try:
         for subdir in folder.iterdir():
-            if subdir.is_dir():
-                # Saltar la carpeta validados para el conteo de pendientes
-                if subdir.name == "validados":
-                    continue
+            if not subdir.is_dir() or subdir.name == "validados":
+                continue
 
-                # Contar imágenes pendientes
-                total += len(list(subdir.glob("*.jpg")))
-                total += len(list(subdir.glob("*.png")))
+            for img in subdir.glob("*.jpg"):
+                if passes(img.name):
+                    total += 1
+            for img in subdir.glob("*.png"):
+                if passes(img.name):
+                    total += 1
 
-                # Contar imágenes validadas en subcarpeta validados/
-                validated_dir = subdir / "validados"
-                if validated_dir.exists():
-                    validated += len(list(validated_dir.glob("*.jpg")))
-                    validated += len(list(validated_dir.glob("*.png")))
+            validated_dir = subdir / "validados"
+            if validated_dir.exists():
+                for img in validated_dir.glob("*.jpg"):
+                    if passes(img.name):
+                        validated += 1
+                for img in validated_dir.glob("*.png"):
+                    if passes(img.name):
+                        validated += 1
     except Exception:
         pass
 
-    # El total incluye tanto pendientes como validadas
     total_all = total + validated
     return total_all, validated
 
@@ -128,7 +203,8 @@ def main():
                                   QVBoxLayout, QHBoxLayout, QPushButton,
                                   QWidget, QLabel, QMessageBox, QFrame,
                                   QTreeWidget, QTreeWidgetItem, QHeaderView,
-                                  QCheckBox)
+                                  QCheckBox, QGroupBox, QRadioButton,
+                                  QButtonGroup)
     from PyQt5.QtGui import QFont, QColor
     from PyQt5.QtCore import Qt
 
@@ -142,7 +218,17 @@ def main():
             self.crop_folders = []  # Todas las carpetas encontradas (hojas)
             self.root_folder = None  # Carpeta raíz seleccionada
             self.leaf_items = []  # Lista de QTreeWidgetItem que son hojas (crops_od)
+            self.folder_fps = {}  # Path -> FPS usado (real o fallback)
+            self.folder_fps_measured = set()  # Carpetas cuyo FPS se midió de verdad
+            self.max_minutes = None  # None=todas; 5 o 15 para filtrar
             self.init_ui()
+
+        def _max_frame_for_folder(self, folder: Path) -> Optional[int]:
+            """Frame máximo permitido para una carpeta según filtro vigente."""
+            if self.max_minutes is None:
+                return None
+            fps = self.folder_fps.get(folder, FPS_FALLBACK)
+            return int(round(fps * self.max_minutes * 60))
 
         def init_ui(self):
             """Inicializar interfaz"""
@@ -211,6 +297,39 @@ def main():
             header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
             layout.addWidget(self.tree_widget)
+
+            # Grupo de filtro temporal por video
+            self.filter_group = QGroupBox("Filtro temporal por video")
+            self.filter_group.setVisible(False)
+            filter_layout = QVBoxLayout()
+
+            radios_layout = QHBoxLayout()
+            self.filter_btn_group = QButtonGroup(self)
+
+            self.filter_all_rb = QRadioButton("Todas las capturas")
+            self.filter_all_rb.setChecked(True)
+            self.filter_5min_rb = QRadioButton("Primeros 5 min")
+            self.filter_15min_rb = QRadioButton("Primeros 15 min")
+
+            for rb, minutes in [
+                (self.filter_all_rb, None),
+                (self.filter_5min_rb, 5),
+                (self.filter_15min_rb, 15),
+            ]:
+                rb.setProperty("max_minutes", minutes)
+                self.filter_btn_group.addButton(rb)
+                radios_layout.addWidget(rb)
+            radios_layout.addStretch()
+
+            self.filter_btn_group.buttonToggled.connect(self.on_filter_changed)
+
+            self.fps_info_label = QLabel("")
+            self.fps_info_label.setStyleSheet("color: #666; font-size: 10px;")
+
+            filter_layout.addLayout(radios_layout)
+            filter_layout.addWidget(self.fps_info_label)
+            self.filter_group.setLayout(filter_layout)
+            layout.addWidget(self.filter_group)
 
             # Label de estado/resumen
             self.status_label = QLabel("No hay carpetas cargadas")
@@ -350,6 +469,9 @@ def main():
                 )
                 return
 
+            # Detectar FPS real por carpeta desde Conteos.db
+            self._compute_folder_fps()
+
             # Limpiar árbol anterior
             self.tree_widget.clear()
             self.leaf_items.clear()
@@ -373,8 +495,107 @@ def main():
             self.select_all_cb.setChecked(True)
             self.tree_widget.setVisible(True)
             self.save_config_btn.setVisible(True)
+            self.filter_group.setVisible(True)
+            self._update_fps_info_label()
 
             self.update_selection_summary()
+
+        def _compute_folder_fps(self):
+            """Detectar FPS real para cada carpeta crops_od encontrada."""
+            self.folder_fps = {}
+            self.folder_fps_measured = set()
+            for f in self.crop_folders:
+                fps, measured = detect_video_fps_from_db(f)
+                self.folder_fps[f] = fps
+                if measured:
+                    self.folder_fps_measured.add(f)
+
+        def _update_fps_info_label(self):
+            """Mostrar rango de FPS detectado bajo los radios."""
+            total = len(self.folder_fps)
+            if total == 0:
+                self.fps_info_label.setText("")
+                return
+            measured = len(self.folder_fps_measured)
+            fallbacks = total - measured
+
+            if measured > 0:
+                measured_vals = [
+                    self.folder_fps[f] for f in self.folder_fps_measured
+                ]
+                mn, mx = min(measured_vals), max(measured_vals)
+                txt = (f"FPS medido: {mn:.2f} – {mx:.2f} "
+                       f"({measured}/{total} carpetas con Conteos.db válido)")
+            else:
+                txt = f"FPS medido: ninguno (0/{total} carpetas con datos)"
+            if fallbacks:
+                txt += (f"  ·  {fallbacks} usan fallback "
+                        f"{FPS_FALLBACK:g} (Conteos.db con <2 detecciones)")
+            self.fps_info_label.setText(txt)
+
+        def on_filter_changed(self, button, checked):
+            """Cambio de filtro temporal: recalcular conteos del árbol."""
+            if not checked:
+                return  # ignorar el evento de "uncheck" del otro radio
+            self.max_minutes = button.property("max_minutes")
+            self._refresh_tree_counts()
+            self.update_selection_summary()
+
+        def _refresh_tree_counts(self):
+            """Recalcular conteos del árbol según filtro vigente."""
+            if not self.leaf_items:
+                return
+
+            self.tree_widget.blockSignals(True)
+            # Hojas: recontar imágenes aplicando max_frame por carpeta
+            for item in self.leaf_items:
+                folder_path = item.data(0, Qt.UserRole)
+                max_frame = self._max_frame_for_folder(folder_path)
+                total, validated = count_images_in_folder(folder_path, max_frame)
+                item.setData(0, Qt.UserRole + 2, total)
+                item.setData(0, Qt.UserRole + 3, validated)
+                item.setText(1, f"{total:,}")
+                if total > 0:
+                    percent = (validated / total) * 100
+                    item.setText(2, f"{percent:.0f}% ({validated:,})")
+                    if percent == 100:
+                        item.setForeground(2, QColor("#28a745"))
+                    elif percent >= 50:
+                        item.setForeground(2, QColor("#ffc107"))
+                    else:
+                        item.setForeground(2, QColor("#dc3545"))
+                else:
+                    item.setText(2, "0%")
+                    item.setForeground(2, QColor("#888"))
+
+            # Intermedios: re-agregar desde hojas
+            root = self.tree_widget.invisibleRootItem()
+            for i in range(root.childCount()):
+                self._refresh_intermediate(root.child(i))
+
+            self.tree_widget.blockSignals(False)
+
+        def _refresh_intermediate(self, item):
+            """Actualizar conteos de un nodo intermedio basado en sus hijos."""
+            is_leaf = item.data(0, Qt.UserRole + 1)
+            if is_leaf:
+                return
+            for i in range(item.childCount()):
+                self._refresh_intermediate(item.child(i))
+            total, validated = self._count_images_recursive(item)
+            item.setText(1, f"({total:,})")
+            if total > 0:
+                percent = (validated / total) * 100
+                item.setText(2, f"{percent:.0f}% ({validated:,})")
+                if percent == 100:
+                    item.setForeground(2, QColor("#28a745"))
+                elif percent >= 50:
+                    item.setForeground(2, QColor("#ffc107"))
+                else:
+                    item.setForeground(2, QColor("#dc3545"))
+            else:
+                item.setText(2, "0%")
+                item.setForeground(2, QColor("#888"))
 
         def _populate_tree(self, tree_dict: Dict, parent_item):
             """Poblar árbol recursivamente"""
@@ -393,7 +614,10 @@ def main():
 
                 if data['_is_leaf']:
                     # Es una carpeta crops_od (hoja)
-                    image_count, validated_count = count_images_in_folder(data['_path'])
+                    max_frame = self._max_frame_for_folder(data['_path'])
+                    image_count, validated_count = count_images_in_folder(
+                        data['_path'], max_frame
+                    )
                     item.setText(1, f"{image_count:,}")
                     item.setData(0, Qt.UserRole + 2, image_count)
                     item.setData(0, Qt.UserRole + 3, validated_count)  # Guardar validadas
@@ -499,6 +723,10 @@ def main():
                     selected_images += image_count
                     selected_validated += validated_count
 
+            filter_text = ""
+            if self.max_minutes is not None:
+                filter_text = f"  ·  filtro: primeros {self.max_minutes} min"
+
             if selected_count > 0:
                 # Calcular porcentaje de validación
                 if selected_images > 0:
@@ -509,7 +737,7 @@ def main():
 
                 self.status_label.setText(
                     f"Seleccionadas: {selected_count}/{total_count} carpetas  •  "
-                    f"{selected_images:,} imágenes{validation_text}"
+                    f"{selected_images:,} imágenes{validation_text}{filter_text}"
                 )
                 self.status_label.setStyleSheet("color: #28a745; font-weight: bold;")
                 self.classify_btn.setEnabled(True)
@@ -523,7 +751,7 @@ def main():
 
                 self.status_label.setText(
                     f"Ninguna carpeta seleccionada (Total: {total_count} carpetas, "
-                    f"{total_images:,} imágenes{validation_text})"
+                    f"{total_images:,} imágenes{validation_text}){filter_text}"
                 )
                 self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
                 self.classify_btn.setEnabled(False)
@@ -633,6 +861,9 @@ def main():
                     )
                     return
 
+                # Detectar FPS real por carpeta
+                self._compute_folder_fps()
+
                 # Construir árbol
                 self.tree_widget.clear()
                 self.leaf_items.clear()
@@ -658,6 +889,8 @@ def main():
                 self.select_all_cb.setVisible(True)
                 self.tree_widget.setVisible(True)
                 self.save_config_btn.setVisible(True)
+                self.filter_group.setVisible(True)
+                self._update_fps_info_label()
                 self.update_selection_summary()
 
                 QMessageBox.information(
@@ -682,10 +915,18 @@ def main():
 
             typologies = load_typologies()
 
+            # Precomputar frame máximo por carpeta según filtro vigente
+            folder_max_frames = None
+            if self.max_minutes is not None:
+                folder_max_frames = {
+                    f: self._max_frame_for_folder(f) for f in selected_folders
+                }
+
             dialog = ClassificationGalleryDialog(
                 crop_folders=selected_folders,
                 default_typologies=typologies,
                 additional_typologies=[],
+                folder_max_frames=folder_max_frames,
                 parent=self
             )
             dialog.exec_()
