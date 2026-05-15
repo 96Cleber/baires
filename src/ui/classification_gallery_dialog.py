@@ -362,7 +362,8 @@ class ClassificationGalleryDialog(QDialog):
     """Diálogo de galería para clasificación manual rápida"""
     # TODO: Chequear como afecta acá las tipologías adicionales
     def __init__(self, crop_manager=None, default_typologies=None, additional_typologies=None,
-                 parent=None, crop_folders=None):
+                 parent=None, crop_folders=None, folder_max_frames=None,
+                 max_minutes=None):
         """
         Args:
             crop_manager: CropManager individual (modo tradicional)
@@ -370,12 +371,18 @@ class ClassificationGalleryDialog(QDialog):
             additional_typologies: Lista de tipologías adicionales
             parent: Widget padre
             crop_folders: Lista de carpetas de crops (modo multi-carpeta)
+            folder_max_frames: dict {crop_folder: max_origin_frame} para filtro
+                temporal por video. None = sin filtro (mostrar todas).
+            max_minutes: minutos del filtro temporal vigente (None, 5, 15) — solo
+                para etiquetar el progreso de validación.
         """
         super().__init__(parent)
         self.default_typologies = default_typologies or []
         self.additional_typologies = additional_typologies or []
         self.crop_manager = crop_manager
         self.crop_folders = crop_folders or []  # Lista de Path para modo multi-carpeta
+        self.folder_max_frames = folder_max_frames  # None o dict {folder: max_frame}
+        self.max_minutes = max_minutes
         self.current_crops = []
         self.classifications_changed = []
         # Clases cargadas dinámicamente desde el módulo centralizado
@@ -640,6 +647,18 @@ class ClassificationGalleryDialog(QDialog):
             if self.crop_folders:
                 show_pending_only = self.pending_only_cb.isChecked()
 
+                def passes_frame_filter(img_name: str, crop_folder) -> bool:
+                    """Aplicar filtro temporal por video (None = sin filtro)."""
+                    if not self.folder_max_frames:
+                        return True
+                    max_frame = self.folder_max_frames.get(crop_folder)
+                    if max_frame is None:
+                        return True
+                    try:
+                        return int(img_name.split('_')[1]) <= max_frame
+                    except (ValueError, IndexError):
+                        return True
+
                 for crop_folder in self.crop_folders:
                     class_dir = crop_folder / selected_class
                     if class_dir.exists():
@@ -647,6 +666,8 @@ class ClassificationGalleryDialog(QDialog):
                         for img_file in class_dir.glob("*.jpg"):
                             # Saltar si está en subcarpeta validados
                             if img_file.parent.name == "validados":
+                                continue
+                            if not passes_frame_filter(img_file.name, crop_folder):
                                 continue
                             thumbnail_data.append({
                                 'path': img_file,
@@ -658,6 +679,8 @@ class ClassificationGalleryDialog(QDialog):
                             })
                         for img_file in class_dir.glob("*.png"):
                             if img_file.parent.name == "validados":
+                                continue
+                            if not passes_frame_filter(img_file.name, crop_folder):
                                 continue
                             thumbnail_data.append({
                                 'path': img_file,
@@ -673,6 +696,8 @@ class ClassificationGalleryDialog(QDialog):
                             validated_dir = class_dir / "validados"
                             if validated_dir.exists():
                                 for img_file in validated_dir.glob("*.jpg"):
+                                    if not passes_frame_filter(img_file.name, crop_folder):
+                                        continue
                                     thumbnail_data.append({
                                         'path': img_file,
                                         'filename': img_file.name,
@@ -682,6 +707,8 @@ class ClassificationGalleryDialog(QDialog):
                                         'validated': True
                                     })
                                 for img_file in validated_dir.glob("*.png"):
+                                    if not passes_frame_filter(img_file.name, crop_folder):
+                                        continue
                                     thumbnail_data.append({
                                         'path': img_file,
                                         'filename': img_file.name,
@@ -1165,8 +1192,24 @@ class ClassificationGalleryDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error guardando: {e}")
 
+    def _passes_temporal_filter(self, img_name: str, crop_folder) -> bool:
+        """Filtro temporal por video: True si el crop entra en el rango vigente.
+
+        Si no hay filtro o el origin_frame no se puede parsear, lo cuenta
+        (mismo criterio que load_class_thumbnails)."""
+        if not self.folder_max_frames:
+            return True
+        max_frame = self.folder_max_frames.get(crop_folder)
+        if max_frame is None:
+            return True
+        try:
+            return int(img_name.split('_')[1]) <= max_frame
+        except (ValueError, IndexError):
+            return True
+
     def calculate_global_validation_stats(self):
-        """Calcular estadísticas globales de validación de todas las carpetas"""
+        """Calcular estadísticas de validación, aplicando el filtro temporal
+        vigente cuando hay folder_max_frames."""
         total_images = 0
         validated_images = 0
 
@@ -1175,22 +1218,27 @@ class ClassificationGalleryDialog(QDialog):
             for crop_folder in self.crop_folders:
                 try:
                     for class_dir in crop_folder.iterdir():
-                        if class_dir.is_dir() and class_dir.name != "validados":
-                            # Contar pendientes
-                            total_images += len(list(class_dir.glob("*.jpg")))
-                            total_images += len(list(class_dir.glob("*.png")))
+                        if not class_dir.is_dir() or class_dir.name == "validados":
+                            continue
 
-                            # Contar validadas
-                            validated_dir = class_dir / "validados"
-                            if validated_dir.exists():
-                                val_count = len(list(validated_dir.glob("*.jpg")))
-                                val_count += len(list(validated_dir.glob("*.png")))
-                                validated_images += val_count
-                                total_images += val_count
+                        for img in class_dir.iterdir():
+                            if not img.is_file() or img.suffix.lower() not in (".jpg", ".png"):
+                                continue
+                            if self._passes_temporal_filter(img.name, crop_folder):
+                                total_images += 1
+
+                        validated_dir = class_dir / "validados"
+                        if validated_dir.exists():
+                            for img in validated_dir.iterdir():
+                                if not img.is_file() or img.suffix.lower() not in (".jpg", ".png"):
+                                    continue
+                                if self._passes_temporal_filter(img.name, crop_folder):
+                                    validated_images += 1
+                                    total_images += 1
                 except Exception:
                     pass
 
-        # Modo tradicional con crop_manager
+        # Modo tradicional con crop_manager (sin filtro temporal aplicable)
         elif self.crop_manager:
             for base_dir in [self.crop_manager.all_crops_dir, self.crop_manager.od_crops_dir]:
                 if base_dir and base_dir.exists():
@@ -1214,6 +1262,13 @@ class ClassificationGalleryDialog(QDialog):
     def update_global_validation_display(self):
         """Actualizar la visualización de estadísticas globales de validación"""
         total, validated = self.calculate_global_validation_stats()
+
+        if self.max_minutes is None:
+            self.global_validation_label.setText("Progreso de Validación:")
+        else:
+            self.global_validation_label.setText(
+                f"Progreso de Validación Primeros {self.max_minutes} min:"
+            )
 
         if total > 0:
             percent = int((validated / total) * 100)
