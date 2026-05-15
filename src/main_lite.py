@@ -927,6 +927,7 @@ def main():
                 default_typologies=typologies,
                 additional_typologies=[],
                 folder_max_frames=folder_max_frames,
+                max_minutes=self.max_minutes,
                 parent=self
             )
             dialog.exec_()
